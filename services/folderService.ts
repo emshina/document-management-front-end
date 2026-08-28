@@ -33,14 +33,30 @@ export interface MotherCompanyItem {
 
 export type TreeNodeItem = MotherCompanyItem | SubCompanyItem | CabinetItem | FolderItem;
 
-// Helper to handle DRF paginated responses recursively or in bulk if needed
+// Helper to handle DRF paginated responses and clean absolute URLs safely
 async function fetchAllPaginated(endpoint: string) {
   let results: any[] = [];
   let url: string | null = endpoint;
 
   while (url) {
-    const response = await apiCall(url, { method: 'GET', requiresAuth: true });
-    if (response.results) {
+    let fetchUrl = url;
+
+    // If DRF returns an absolute URL for 'next', extract only the pathname and query string
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      try {
+        const parsed = new URL(url);
+        fetchUrl = parsed.pathname + parsed.search;
+      } catch (e) {
+        // Fallback if parsing fails
+      }
+    }
+
+    // Ensure no duplicate /api/ prefixes happen
+    fetchUrl = fetchUrl.replace(/^\/api\/api\//, '/api/');
+
+    const response = await apiCall(fetchUrl, { method: 'GET', requiresAuth: true });
+    
+    if (response && response.results) {
       results = results.concat(response.results);
       url = response.next;
     } else if (Array.isArray(response)) {
@@ -56,9 +72,9 @@ async function fetchAllPaginated(endpoint: string) {
 // 1. Fetch the complete 4-tier tree: Mother Company -> Sub-Companies -> Cabinets -> Folders
 export async function fetchFolderTree(): Promise<MotherCompanyItem[]> {
   const [tenants, cabinets, folders] = await Promise.all([
-    fetchAllPaginated('/v1/tenants/tenants/'),
-    fetchAllPaginated('/v1/documents/cabinets/'),
-    fetchAllPaginated('/v1/documents/folders/'),
+    fetchAllPaginated('/api/v1/tenants/tenants/'),
+    fetchAllPaginated('/api/v1/documents/cabinets/'),
+    fetchAllPaginated('/api/v1/documents/folders/'),
   ]);
 
   const motherCompanies = tenants.filter((t: any) => !t.parent);
@@ -115,19 +131,19 @@ export async function fetchFolderContents(id: string, type: TreeNodeItem['type']
 
   // 1. Mother Company -> Returns Sub-Companies
   if (type === 'mother_company') {
-    const allTenants = await fetchAllPaginated('/v1/tenants/tenants/');
+    const allTenants = await fetchAllPaginated('/api/v1/tenants/tenants/');
     folders = allTenants.filter((t: any) => t.parent === id).map((t: any) => ({ ...t, type: 'sub_company' }));
   } 
   // 2. Sub Company -> Returns Cabinets owned by this tenant
   else if (type === 'sub_company') {
-    const allCabinets = await fetchAllPaginated('/v1/documents/cabinets/');
+    const allCabinets = await fetchAllPaginated('/api/v1/documents/cabinets/');
     folders = allCabinets.filter((c: any) => c.tenant === id || c.tenant_id === id).map((c: any) => ({ ...c, type: 'cabinet' }));
   } 
   // 3. Cabinet -> Returns root folders (parent is null) and documents directly inside the cabinet
   else if (type === 'cabinet') {
     const [foldersData, documentsData] = await Promise.all([
-      fetchAllPaginated(`/v1/documents/folders/?cabinet=${id}`),
-      fetchAllPaginated(`/v1/documents/documents/?cabinet=${id}`),
+      fetchAllPaginated(`/api/v1/documents/folders/?cabinet=${id}`),
+      fetchAllPaginated(`/api/v1/documents/documents/?cabinet=${id}`),
     ]);
     folders = foldersData.filter((f: any) => !f.parent).map((f: any) => ({ ...f, type: 'folder' }));
     documents = documentsData;
@@ -135,8 +151,8 @@ export async function fetchFolderContents(id: string, type: TreeNodeItem['type']
   // 4. Folder -> Returns sub-folders and documents inside this specific folder
   else if (type === 'folder') {
     const [foldersData, documentsData] = await Promise.all([
-      fetchAllPaginated(`/v1/documents/folders/?parent=${id}`),
-      fetchAllPaginated(`/v1/documents/documents/?folder=${id}`),
+      fetchAllPaginated(`/api/v1/documents/folders/?parent=${id}`),
+      fetchAllPaginated(`/api/v1/documents/documents/?folder=${id}`),
     ]);
     folders = foldersData.map((f: any) => ({ ...f, type: 'folder' }));
     documents = documentsData;
@@ -147,7 +163,7 @@ export async function fetchFolderContents(id: string, type: TreeNodeItem['type']
 
 // 3. Create a Sub-Company under a Mother Company
 export async function createSubCompany(name: string, parentTenantId: string) {
-  return apiCall('/v1/tenants/tenants/', {
+  return apiCall('/api/v1/tenants/tenants/', {
     method: 'POST',
     requiresAuth: true,
     body: JSON.stringify({
@@ -164,7 +180,7 @@ export async function createCabinet(name: string, tenantId: string) {
     tenant: tenantId,
   };
 
-  return apiCall('/v1/documents/cabinets/', {
+  return apiCall('/api/v1/documents/cabinets/', {
     method: 'POST',
     requiresAuth: true,
     body: JSON.stringify(payload),
@@ -177,7 +193,7 @@ export async function createFolderItem(name: string, targetId: string, targetTyp
   let parentId: string | null = null;
 
   if (targetType === 'folder') {
-    const allFolders = await fetchAllPaginated('/v1/documents/folders/');
+    const allFolders = await fetchAllPaginated('/api/v1/documents/folders/');
     const targetFolder = allFolders.find((f: any) => f.id === targetId);
     
     if (targetFolder) {
@@ -186,7 +202,7 @@ export async function createFolderItem(name: string, targetId: string, targetTyp
     }
   }
 
-  return apiCall('/v1/documents/folders/', {
+  return apiCall('/api/v1/documents/folders/', {
     method: 'POST',
     requiresAuth: true,
     body: JSON.stringify({
@@ -201,12 +217,12 @@ export async function createFolderItem(name: string, targetId: string, targetTyp
 
 // 6. Delete a folder, cabinet, or tenant item based on type
 export async function deleteFolderItem(id: string, type: TreeNodeItem['type'] = 'folder') {
-  let endpoint = `/v1/documents/folders/${id}/`;
+  let endpoint = `/api/v1/documents/folders/${id}/`;
   
   if (type === 'sub_company' || type === 'mother_company') {
-    endpoint = `/v1/tenants/tenants/${id}/`;
+    endpoint = `/api/v1/tenants/tenants/${id}/`;
   } else if (type === 'cabinet') {
-    endpoint = `/v1/documents/cabinets/${id}/`;
+    endpoint = `/api/v1/documents/cabinets/${id}/`;
   }
 
   return apiCall(endpoint, {

@@ -1,8 +1,17 @@
+
+
+
+
+
+
+
+
+
 'use client';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ChevronRight, ChevronDown, Building, Building2, Folder, Search, Loader2, 
-  Plus, Trash2, Box, FileText, Upload, MoreVertical, FolderPlus 
+  Trash2, Box, FileText, Upload, MoreVertical, FolderPlus, Check, X 
 } from 'lucide-react';
 import { fetchFolderTree, createSubCompany, createCabinet, createFolderItem, deleteFolderItem, MotherCompanyItem, TreeNodeItem } from '@/services/folderService';
 
@@ -23,6 +32,7 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
   const [creatingType, setCreatingType] = useState<'sub_company' | 'cabinet' | 'folder' | null>(null);
   const [activeCreatingParentId, setActiveCreatingParentId] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -37,9 +47,9 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const loadFolders = async () => {
+  const loadFolders = async (preserveExpanded = true) => {
     try {
-      setLoading(true);
+      setLoading(false); // keep background silent if refreshing
       const data = await fetchFolderTree();
       setFolderTree(data);
       if (data.length > 0 && Object.keys(expanded).length === 0) {
@@ -54,7 +64,8 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
   };
 
   useEffect(() => {
-    loadFolders();
+    setLoading(true);
+    loadFolders().finally(() => setLoading(false));
   }, []);
 
   const toggleExpand = (id: string, e: React.MouseEvent) => {
@@ -64,15 +75,15 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
 
   const handleCreateNode = async (parentItem: TreeNodeItem, e: React.FormEvent) => {
     e.preventDefault();
-    if (!newChildName.trim() || !creatingType) return;
+    if (!newChildName.trim() || !creatingType || isSubmitting) return;
 
     try {
+      setIsSubmitting(true);
       if (creatingType === 'sub_company') {
         await createSubCompany(newChildName.trim(), parentItem.id);
       } else if (creatingType === 'cabinet') {
         await createCabinet(newChildName.trim(), parentItem.id);
       } else if (creatingType === 'folder') {
-        // Enforce company standard: Cabinets can only create folders, folders can create folders
         const itemType = parentItem.type === 'cabinet' ? 'cabinet' : 'folder';
         await createFolderItem(newChildName.trim(), parentItem.id, itemType);
       }
@@ -81,9 +92,16 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
       setActiveCreatingParentId(null);
       setCreatingType(null);
       setExpanded(prev => ({ ...prev, [parentItem.id]: true }));
-      await loadFolders();
+      
+      // Small buffer delay to ensure DB transaction consistency before reloading tree
+      setTimeout(async () => {
+        await loadFolders();
+      }, 300);
+
     } catch (err: any) {
       alert(err.message || 'Failed to create item');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -123,7 +141,7 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     return items.map((item) => {
       const isExpanded = expanded[item.id] || Boolean(filterText);
       const hasChildren = ('children' in item && item.children && item.children.length > 0) || 
-                          ('files' in item && item.files && item.files.length > 0);
+                        ('files' in item && item.files && item.files.length > 0);
       
       const isMother = item.type === 'mother_company';
       const isSubCompany = item.type === 'sub_company';
@@ -241,24 +259,33 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
             </div>
           </div>
 
-          {/* Inline Creation Input Form */}
+          {/* Reliable Inline Creation Form (Replaced unstable blur trap with manual submit/cancel actions) */}
           {activeCreatingParentId === item.id && (
-            <form onSubmit={(e) => handleCreateNode(item, e)} className="ml-7 mt-1 mr-2">
+            <form onSubmit={(e) => handleCreateNode(item, e)} className="ml-7 mt-1.5 mr-2 flex items-center gap-1.5">
               <input 
                 type="text"
                 autoFocus
                 placeholder={`New ${creatingType?.replace('_', ' ')} name...`}
                 value={newChildName}
                 onChange={(e) => setNewChildName(e.target.value)}
-                onBlur={() => {
-                  setTimeout(() => {
-                    setActiveCreatingParentId(null);
-                    setCreatingType(null);
-                    setNewChildName('');
-                  }, 200);
-                }}
                 className="w-full text-xs px-2 py-1 border border-purple-400 rounded outline-none bg-white shadow-sm"
               />
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className="p-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition flex-shrink-0"
+                title="Save"
+              >
+                {isSubmitting ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+              </button>
+              <button 
+                type="button" 
+                onClick={() => { setActiveCreatingParentId(null); setCreatingType(null); setNewChildName(''); }}
+                className="p-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition flex-shrink-0"
+                title="Cancel"
+              >
+                <X size={12} />
+              </button>
             </form>
           )}
 
@@ -267,10 +294,8 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
             <div className="pl-4 space-y-1 mt-0.5 border-l border-gray-200 ml-3">
               {hasChildren ? (
                 <>
-                  {/* Render sub-folders/companies/cabinets */}
                   {item.children && renderTree(item.children)}
 
-                  {/* Render Files directly nested inside folders */}
                   {'files' in item && item.files && item.files.map((file: any) => (
                     <div 
                       key={file.id} 

@@ -1,4 +1,8 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+
+
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 interface FetchOptions extends RequestInit {
   requiresAuth?: boolean;
@@ -19,9 +23,38 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
+
+    // Automatically inject tenant context from localStorage for backend permissions
+    const tenantId = localStorage.getItem('tenant_id');
+    if (tenantId) {
+      headers['X-Tenant-ID'] = tenantId; 
+    }
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  // ✅ ROBUST URL RESOLUTION:
+  // If Django pagination returns an absolute URL (e.g., http://localhost:8000/api/v1/...),
+  // extract just the pathname and search parameters so we don't duplicate the base URL.
+  let targetEndpoint = endpoint;
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    try {
+      const parsedUrl = new URL(endpoint);
+      targetEndpoint = parsedUrl.pathname + parsedUrl.search;
+    } catch (e) {
+      // Fallback if parsing fails
+    }
+  }
+
+  // 🛠️ Prevent double-prefixing if endpoint starts with /api/ or /api
+  if (targetEndpoint.startsWith('/api/') || targetEndpoint === '/api') {
+    targetEndpoint = targetEndpoint.replace(/^\/api/, '');
+  }
+
+  // ✅ Safely combine base URL and endpoint, handling any missing or duplicate slashes
+  const cleanBase = API_BASE_URL.replace(/\/+$/, '');
+  const cleanEndpoint = targetEndpoint.startsWith('/') ? targetEndpoint : `/${targetEndpoint}`;
+  const requestUrl = `${cleanBase}${cleanEndpoint}`;
+
+  const response = await fetch(requestUrl, {
     ...options,
     headers,
   });

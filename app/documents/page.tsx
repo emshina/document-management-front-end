@@ -14,6 +14,13 @@ export default function DocumentsPage() {
   // 1. Manage the single source of truth for the currently selected node
   const [selectedItem, setSelectedItem] = useState<TreeNodeItem | null>(null);
 
+  // 2. Add a refresh trigger counter to force FolderTree to re-fetch on command
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleTriggerRefresh = () => {
+    setRefreshKey((prev) => prev + 1);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Sidebar Navigation */}
@@ -28,17 +35,19 @@ export default function DocumentsPage() {
         <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
         <div className="flex flex-1 overflow-hidden relative">
           
-          {/* 2. Pass selection handler to FolderTree */}
+          {/* 3. Pass refreshKey so FolderTree reloads instantly when mutated */}
           <div className="hidden md:flex">
             <FolderTree 
+              key={refreshKey}
               onSelectFolder={(item) => setSelectedItem(item)} 
             />
           </div>
 
-          {/* 3. Pass selectedItem and selection handler to DocumentContentArea */}
+          {/* 4. Pass selectedItem, selection handler, and the refresh callback to DocumentContentArea */}
           <DocumentContentArea 
             selectedItem={selectedItem} 
             onSelectItem={(item) => setSelectedItem(item)} 
+            onRefreshTree={handleTriggerRefresh}
           />
         </div>
       </div>
