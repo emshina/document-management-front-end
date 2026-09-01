@@ -1,17 +1,20 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 
-const BASE_WIDTH = 800; // Match the builder's logical canvas width
+const BASE_WIDTH = 800;
+const API = 'http://localhost:8000';
 
-// The 4 requested signature font families
+// 3 real-signature style options (loaded from Google Fonts below)
 const SIGNATURE_FONTS = [
-  { name: 'Alex Brush', className: 'font-alex-brush' },
-  { name: 'Dancing Script', className: 'font-dancing-script' },
-  { name: 'Great Vibes', className: 'font-great-vibes' },
-  { name: 'Whisper', className: 'font-whisper' },
+  { name: 'Great Vibes', family: "'Great Vibes', cursive" },
+  { name: 'Alex Brush', family: "'Alex Brush', cursive" },
+  { name: 'Dancing Script', family: "'Dancing Script', cursive" },
 ];
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const isDateField = (t) => t === 'date' || t === 'sign_date';
 
 export default function FillFormPage() {
   const params = useParams();
@@ -20,13 +23,13 @@ export default function FillFormPage() {
   const [formTemplate, setFormTemplate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   const [fieldValues, setFieldValues] = useState({});
-  const [signatureStyles, setSignatureStyles] = useState({}); // fieldId -> font index
+  const [signatureStyles, setSignatureStyles] = useState({});
+  const [activeSigField, setActiveSigField] = useState(null); // fieldId whose style picker is open
   const [documentUrl, setDocumentUrl] = useState(null);
   const [isImageFile, setIsImageFile] = useState(false);
 
-  // PDF rendering states
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [pdfReady, setPdfReady] = useState(false);
@@ -39,10 +42,11 @@ export default function FillFormPage() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  /* ---------------- load template ---------------- */
   useEffect(() => {
     if (!id) return;
 
-    fetch(`http://localhost:8000/api/v1/esignature/form-templates/${id}/`)
+    fetch(`${API}/api/v1/esignature/form-templates/${id}/`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load form template.');
         return res.json();
@@ -52,30 +56,27 @@ export default function FillFormPage() {
 
         const initialValues = {};
         const initialSigStyles = {};
-        if (data.fields && Array.isArray(data.fields)) {
-          data.fields.forEach((field) => {
-            if (field.id) {
-              initialValues[field.id] = field.value !== undefined ? field.value : '';
-              if (field.field_type === 'signature') {
-                initialSigStyles[field.id] = 0; // Default to first font style (Alex Brush)
-              }
-            }
-          });
-        }
+        (Array.isArray(data.fields) ? data.fields : []).forEach((field) => {
+          if (!field.id) return;
+          if (isDateField(field.field_type)) {
+            // Date fields are permanently prefilled with today's date
+            initialValues[field.id] = field.value || todayISO();
+          } else {
+            initialValues[field.id] = field.value !== undefined && field.value !== null ? field.value : '';
+          }
+          if (field.field_type === 'signature') initialSigStyles[field.id] = 0;
+        });
         setFieldValues(initialValues);
         setSignatureStyles(initialSigStyles);
 
         if (data.document_url || data.document) {
           let rawUrl = data.document_url || data.document;
-          if (rawUrl.startsWith('/')) {
-            rawUrl = `http://localhost:8000${rawUrl}`;
-          }
+          if (rawUrl.startsWith('/')) rawUrl = `${API}${rawUrl}`;
           try {
             const docRes = await fetch(rawUrl);
             if (docRes.ok) {
               const blob = await docRes.blob();
-              const objectUrl = URL.createObjectURL(blob);
-              setDocumentUrl(objectUrl);
+              setDocumentUrl(URL.createObjectURL(blob));
               setIsImageFile(blob.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(rawUrl));
             } else {
               setDocumentUrl(rawUrl);
@@ -95,7 +96,7 @@ export default function FillFormPage() {
       });
   }, [id]);
 
-  // Handle PDF.js initialization if it's a PDF document
+  /* ---------------- pdf.js ---------------- */
   useEffect(() => {
     let cancelled = false;
     let loadingTask = null;
@@ -106,11 +107,9 @@ export default function FillFormPage() {
         setPdfReady(false);
         return;
       }
-
       try {
         setPdfReady(false);
         const pdfjs = await import('pdfjs-dist');
-
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           'pdfjs-dist/build/pdf.worker.min.mjs',
           import.meta.url
@@ -118,36 +117,27 @@ export default function FillFormPage() {
 
         loadingTask = pdfjs.getDocument({ url: documentUrl });
         const doc = await loadingTask.promise;
-
         if (cancelled) {
-          if (loadingTask && typeof loadingTask.destroy === 'function') {
-            loadingTask.destroy();
-          }
+          loadingTask?.destroy?.();
           return;
         }
-
         pdfDocRef.current = doc;
         setTotalPages(doc.numPages);
         setCurrentPage(1);
         setPdfReady(true);
-      } catch (error) {
+      } catch (e) {
         if (!cancelled) {
-          console.error('PDF load failed:', error);
+          console.error('PDF load failed:', e);
           setPdfReady(false);
         }
       }
     };
 
     loadPdf();
-
     return () => {
       cancelled = true;
-      if (renderTaskRef.current) {
-        try { renderTaskRef.current.cancel(); } catch {}
-      }
-      if (loadingTask && typeof loadingTask.destroy === 'function') {
-        try { loadingTask.destroy(); } catch {}
-      }
+      try { renderTaskRef.current?.cancel(); } catch {}
+      try { loadingTask?.destroy?.(); } catch {}
     };
   }, [documentUrl, isImageFile]);
 
@@ -155,15 +145,12 @@ export default function FillFormPage() {
     const doc = pdfDocRef.current;
     const canvasEl = pdfCanvasRef.current;
     if (!doc || !canvasEl || !pdfReady) return;
-
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch {}
-    }
+    try { renderTaskRef.current?.cancel(); } catch {}
 
     try {
       const page = await doc.getPage(currentPage);
       const base = page.getViewport({ scale: 1 });
-      const cssScale = BASE_WIDTH / base.width;          
+      const cssScale = BASE_WIDTH / base.width;
       const dpr = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: cssScale * dpr });
 
@@ -175,66 +162,64 @@ export default function FillFormPage() {
 
       const ctx = canvasEl.getContext('2d');
       if (!ctx) return;
-      
       renderTaskRef.current = page.render({ canvasContext: ctx, viewport });
       await renderTaskRef.current.promise;
     } catch (err) {
-      if (err?.name !== 'RenderingCancelledException') {
-        console.error('Error rendering PDF page:', err);
-      }
+      if (err?.name !== 'RenderingCancelledException') console.error(err);
     }
   }, [currentPage, pdfReady]);
 
-  useEffect(() => { 
-    renderPdfPage(); 
-  }, [renderPdfPage]);
+  useEffect(() => { renderPdfPage(); }, [renderPdfPage]);
 
+  /* ---------------- handlers ---------------- */
   const handleInputChange = (fieldId, value) => {
-    setFieldValues((prev) => ({
-      ...prev,
-      [fieldId]: value,
-    }));
+    setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   };
 
   const handleSelectSignatureFont = (fieldId, fontIdx) => {
-    setSignatureStyles((prev) => ({
-      ...prev,
-      [fieldId]: fontIdx,
-    }));
+    setSignatureStyles((prev) => ({ ...prev, [fieldId]: fontIdx }));
+    setActiveSigField(null);
   };
 
-  // Check if all fields are filled
-  const allFieldsFilled = formTemplate?.fields && formTemplate.fields.length > 0
-    ? formTemplate.fields.every((field) => {
-        const val = fieldValues[field.id];
-        if (field.field_type === 'checkbox' || field.field_type === 'radio') {
-          return val === true;
-        }
-        return val !== undefined && val !== null && String(val).trim() !== '';
-      })
-    : true;
+  const fields = formTemplate?.fields ?? [];
+
+  const allFieldsFilled = useMemo(() => {
+    if (!fields.length) return true;
+    return fields.every((field) => {
+      const val = fieldValues[field.id];
+      if (field.field_type === 'checkbox' || field.field_type === 'radio') return val === true;
+      return val !== undefined && val !== null && String(val).trim() !== '';
+    });
+  }, [fields, fieldValues]);
+
+  const filledCount = fields.filter((f) => {
+    const v = fieldValues[f.id];
+    return f.field_type === 'checkbox' || f.field_type === 'radio'
+      ? v === true
+      : v !== undefined && v !== null && String(v).trim() !== '';
+  }).length;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!allFieldsFilled) return;
     setSubmitting(true);
-
     try {
       const payload = {
         field_values: Object.keys(fieldValues).map((fieldId) => ({
           form_field: fieldId,
           value: fieldValues[fieldId],
+          // persist the chosen signature style so the rendered doc matches
+          ...(signatureStyles[fieldId] !== undefined
+            ? { signature_font: SIGNATURE_FONTS[signatureStyles[fieldId]].name }
+            : {}),
         })),
       };
 
-      const response = await fetch(`http://localhost:8000/api/v1/esignature/form-templates/${id}/submit_response/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
+      const response = await fetch(
+        `${API}/api/v1/esignature/form-templates/${id}/submit_response/`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+      );
       if (!response.ok) throw new Error('Failed to submit form response.');
-
       setSuccess(true);
     } catch (err) {
       alert(err.message);
@@ -243,181 +228,225 @@ export default function FillFormPage() {
     }
   };
 
-  if (loading) return <div className="p-10 text-white text-center">Loading form template...</div>;
-  if (error) return <div className="p-10 text-red-500 text-center">Error: {error}</div>;
-  if (success) return <div className="p-10 text-green-400 text-center font-bold text-xl">Form submitted successfully! Thank you.</div>;
+  /* ---------------- states ---------------- */
+  if (loading) return <Shell><p className="text-slate-300">Loading document…</p></Shell>;
+  if (error) return <Shell><p className="text-red-400">Error: {error}</p></Shell>;
+  if (success)
+    return (
+      <Shell>
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-2xl text-emerald-400">✓</div>
+          <h2 className="text-xl font-semibold text-white">Document signed</h2>
+          <p className="mt-1 text-sm text-slate-400">Your completed copy has been submitted.</p>
+        </div>
+      </Shell>
+    );
 
   return (
-    <div className="w-full min-h-screen bg-gray-950 text-white flex flex-col">
-      <form onSubmit={handleSubmit} className="flex flex-col flex-1">
-        {/* Top Sticky Bar */}
-        <header className="bg-gray-900 border-b border-gray-800 px-6 py-4 sticky top-0 z-50 flex flex-col md:flex-row items-center justify-between gap-4 shadow-md">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100">
+      <FontLoader />
+      <form onSubmit={handleSubmit} className="flex min-h-screen flex-col">
+        {/* Header */}
+        <header className="sticky top-0 z-50 flex flex-col items-center justify-between gap-4 border-b border-slate-800 bg-slate-900/90 px-6 py-4 backdrop-blur md:flex-row">
           <div>
-            <h1 className="text-xl font-bold">muchina kamau</h1>
-            <p className="text-xs text-gray-400">Fill in the fields directly on the document.</p>
+            <h1 className="text-lg font-semibold tracking-tight">
+              {formTemplate?.name || formTemplate?.title || 'Document'}
+            </h1>
+            <p className="text-xs text-slate-400">
+              Click a field on the document to fill it. Signatures are generated from your typed name.
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-300">
+              {filledCount}/{fields.length} fields complete
+            </span>
             <button
               type="submit"
               disabled={!allFieldsFilled || submitting}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold text-xs transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shadow"
+              className="whitespace-nowrap rounded-lg bg-indigo-600 px-6 py-2 text-xs font-semibold shadow transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {submitting ? 'Submitting...' : 'Submit Form'}
+              {submitting ? 'Submitting…' : 'Finish & Submit'}
             </button>
           </div>
         </header>
 
-        {/* Main Document Workspace */}
-        <main className="flex-1 flex flex-col items-center p-4 md:p-8 bg-gray-950 overflow-auto">
+        {/* Workspace */}
+        <main className="flex flex-1 flex-col items-center overflow-auto p-4 md:p-8">
           {documentUrl ? (
-            <div className="flex flex-col items-center w-full">
+            <div className="flex w-full flex-col items-center">
               {totalPages > 1 && (
-                <div className="bg-gray-900 border border-gray-800 px-4 py-2 rounded-xl mb-4 flex items-center gap-4 text-xs text-gray-300">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-2 py-1 bg-gray-800 rounded disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
+                <div className="mb-4 flex items-center gap-4 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-xs text-slate-300">
+                  <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="rounded bg-slate-800 px-2 py-1 disabled:opacity-40">Previous</button>
                   <span>Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong></span>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-2 py-1 bg-gray-800 rounded disabled:opacity-40"
-                  >
-                    Next
-                  </button>
+                  <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="rounded bg-slate-800 px-2 py-1 disabled:opacity-40">Next</button>
                 </div>
               )}
 
-              {/* Strict matching canvas box container */}
               <div
-                style={{
-                  width: BASE_WIDTH,
-                  height: pageHeight,
-                }}
-                className="relative bg-white shadow-2xl rounded-lg border border-gray-800 overflow-hidden"
+                style={{ width: BASE_WIDTH, height: pageHeight }}
+                className="relative overflow-hidden rounded-lg border border-slate-800 bg-white shadow-2xl"
+                onClick={() => setActiveSigField(null)}
               >
-                {/* Background Document Layer */}
                 {isImageFile ? (
                   <img
                     src={documentUrl}
-                    alt="Template background"
+                    alt="Document background"
                     onLoad={(e) => {
                       const img = e.currentTarget;
                       setPageHeight(Math.round((img.naturalHeight / img.naturalWidth) * BASE_WIDTH));
                     }}
-                    className="absolute inset-0 z-0 w-full h-full object-contain pointer-events-none"
+                    className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"
                     draggable={false}
                   />
                 ) : (
-                  <canvas ref={pdfCanvasRef} className="absolute top-0 left-0 z-0 pointer-events-none" />
+                  <canvas ref={pdfCanvasRef} className="pointer-events-none absolute left-0 top-0 z-0" />
                 )}
 
-                {/* Field Overlay Layer */}
-                <div className="absolute inset-0 z-20 pointer-events-none">
-                  {formTemplate?.fields &&
-                    formTemplate.fields
-                      .filter((f) => (f.page_number || 1) === currentPage)
-                      .map((field) => {
-                        const val = fieldValues[field.id];
-                        const isFilled = val !== undefined && val !== '' && val !== false;
-                        const isSignature = field.field_type === 'signature';
-                        const currentSigStyleIndex = signatureStyles[field.id] || 0;
-                        const sigFontClass = SIGNATURE_FONTS[currentSigStyleIndex].className;
+                {/* Fields */}
+                <div className="absolute inset-0 z-20">
+                  {fields
+                    .filter((f) => (f.page_number || 1) === currentPage)
+                    .map((field) => {
+                      const val = fieldValues[field.id];
+                      const isFilled =
+                        val !== undefined && val !== null && val !== '' && val !== false;
+                      const isSignature = field.field_type === 'signature';
+                      const styleIdx = signatureStyles[field.id] ?? 0;
+                      const sigFamily = SIGNATURE_FONTS[styleIdx].family;
 
-                        return (
-                          <div
-                            key={field.id}
-                            style={{
-                              top: `${field.y_coord}%`,
-                              left: `${field.x_coord}%`,
-                              width: `${field.width}%`,
-                              height: `${field.height}%`,
-                            }}
-                            className={`absolute pointer-events-auto flex items-center px-1 transition-all ${
-                              isFilled
-                                ? 'bg-transparent border-none shadow-none ring-0 overflow-hidden' 
-                                : 'bg-white/95 backdrop-blur-xs border-2 border-purple-500 shadow-sm rounded-md focus-within:ring-2 focus-within:ring-purple-400 overflow-visible'
-                            }`}
-                          >
-                            {field.field_type === 'checkbox' || field.field_type === 'radio' ? (
-                              <div className="flex items-center gap-1.5 w-full h-full">
-                                <input
-                                  type="checkbox"
-                                  checked={val ?? (field.value || false)}
-                                  onChange={(e) => handleInputChange(field.id, e.target.checked)}
-                                  className="rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                />
-                                {!isFilled && <span className="text-[10px] text-gray-700 truncate">{field.label}</span>}
-                              </div>
-                            ) : field.field_type === 'dropdown' ? (
-                              <select
-                                value={val ?? (field.value || '')}
-                                onChange={(e) => handleInputChange(field.id, e.target.value)}
-                                className="w-full bg-transparent outline-none text-xs text-gray-900 font-medium"
-                              >
-                                <option value="">Select {field.label}</option>
-                              </select>
-                            ) : isSignature ? (
-                              <div className="relative w-full h-full flex items-center group">
-                                <input
-                                  type="text"
-                                  placeholder={field.label || 'Type name for signature'}
-                                  value={val ?? (field.value || '')}
-                                  onChange={(e) => handleInputChange(field.id, e.target.value)}
-                                  className={`w-full h-full bg-transparent outline-none text-xl text-black px-1 placeholder:text-gray-400 placeholder:text-xs placeholder:not-italic ${sigFontClass}`}
-                                />
-                                
-                                {/* Signature Generator / Selector Popover Box */}
-                                {isFilled && (
-                                  <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover:flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl p-2 z-50 whitespace-nowrap gap-1.5 w-64">
-                                    <div className="flex items-center justify-between border-b border-gray-800 pb-1">
-                                      <span className="text-[11px] text-gray-300 font-semibold">Select Signature Style</span>
-                                      <span className="text-[9px] text-purple-400">Editable text</span>
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                      {SIGNATURE_FONTS.map((font, idx) => (
-                                        <button
-                                          key={font.name}
-                                          type="button"
-                                          onClick={() => handleSelectSignatureFont(field.id, idx)}
-                                          className={`text-left px-2.5 py-1.5 rounded text-lg hover:bg-gray-800 transition flex items-center justify-between ${font.className} ${
-                                            currentSigStyleIndex === idx ? 'bg-purple-600/30 text-purple-300 font-bold border border-purple-500/50' : 'text-gray-200 bg-gray-950/40'
-                                          }`}
-                                        >
-                                          <span className="truncate">{val}</span>
-                                          <span className="text-[9px] text-gray-400 font-sans ml-2 shrink-0">{font.name}</span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
+                      return (
+                        <div
+                          key={field.id}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            top: `${field.y_coord}%`,
+                            left: `${field.x_coord}%`,
+                            width: `${field.width}%`,
+                            height: `${field.height}%`,
+                          }}
+                          className={`absolute flex items-center rounded-[3px] transition-all ${
+                            isFilled
+                              ? 'border-none bg-transparent ring-0'
+                              : 'bg-indigo-50/70 ring-1 ring-inset ring-indigo-400 hover:bg-indigo-50 focus-within:ring-2 focus-within:ring-indigo-600'
+                          }`}
+                        >
+                          {/* checkbox / radio */}
+                          {field.field_type === 'checkbox' || field.field_type === 'radio' ? (
+                            <label className="flex h-full w-full cursor-pointer items-center gap-1.5 px-1">
                               <input
-                                type={field.field_type === 'date' || field.field_type === 'sign_date' ? 'date' : 'text'}
-                                placeholder={field.label}
-                                value={val ?? (field.value || '')}
-                                onChange={(e) => handleInputChange(field.id, e.target.value)}
-                                className="w-full h-full bg-transparent outline-none text-[11px] md:text-xs px-1 text-black font-medium placeholder:text-gray-400"
+                                type="checkbox"
+                                checked={val === true}
+                                onChange={(e) => handleInputChange(field.id, e.target.checked)}
+                                className="h-3.5 w-3.5 cursor-pointer accent-indigo-600"
                               />
-                            )}
-                          </div>
-                        );
-                      })}
+                              {!isFilled && (
+                                <span className="truncate text-[10px] text-slate-600">{field.label}</span>
+                              )}
+                            </label>
+                          ) : field.field_type === 'dropdown' ? (
+                            <select
+                              value={val ?? ''}
+                              onChange={(e) => handleInputChange(field.id, e.target.value)}
+                              className="h-full w-full bg-transparent px-1 text-[11px] font-medium text-slate-900 outline-none"
+                            >
+                              <option value="">Select {field.label}</option>
+                              {(field.options || []).map((opt) => {
+                                const v = typeof opt === 'string' ? opt : opt.value ?? opt.label;
+                                return <option key={v} value={v}>{typeof opt === 'string' ? opt : opt.label ?? v}</option>;
+                              })}
+                            </select>
+                          ) : isDateField(field.field_type) ? (
+                            /* date — permanently prefilled with today, still editable */
+                            <input
+                              type="date"
+                              value={val || todayISO()}
+                              onChange={(e) => handleInputChange(field.id, e.target.value || todayISO())}
+                              className="h-full w-full bg-transparent px-1 text-[11px] font-medium text-slate-900 outline-none"
+                            />
+                          ) : isSignature ? (
+                            <div className="relative flex h-full w-full items-center">
+                              <input
+                                type="text"
+                                placeholder={field.label || 'Type your full name'}
+                                value={val ?? ''}
+                                onFocus={() => setActiveSigField(field.id)}
+                                onChange={(e) => handleInputChange(field.id, e.target.value)}
+                                style={{ fontFamily: sigFamily }}
+                                className="h-full w-full bg-transparent px-1 text-2xl leading-none text-slate-900 outline-none placeholder:font-sans placeholder:text-[10px] placeholder:text-slate-500"
+                              />
+                              {isFilled && (
+                                <span className="pointer-events-none absolute bottom-0 left-1 right-1 border-b border-slate-400/70" />
+                              )}
+
+                              {/* style picker */}
+                              {activeSigField === field.id && String(val || '').trim() !== '' && (
+                                <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl">
+                                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                                    <span className="text-[11px] font-semibold text-slate-200">Choose your signature</span>
+                                    <button type="button" onClick={() => setActiveSigField(null)} className="text-[10px] text-slate-400 hover:text-white">Done</button>
+                                  </div>
+                                  <div className="mt-1.5 flex flex-col gap-1.5">
+                                    {SIGNATURE_FONTS.map((font, idx) => (
+                                      <button
+                                        key={font.name}
+                                        type="button"
+                                        onClick={() => handleSelectSignatureFont(field.id, idx)}
+                                        className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
+                                          styleIdx === idx
+                                            ? 'border-indigo-500 bg-indigo-500/15'
+                                            : 'border-slate-800 bg-slate-950/60 hover:border-slate-600'
+                                        }`}
+                                      >
+                                        <span className="truncate text-2xl leading-tight text-white" style={{ fontFamily: font.family }}>
+                                          {val}
+                                        </span>
+                                        <span className="ml-2 shrink-0 text-[9px] text-slate-400">{font.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <input
+                              type={field.field_type === 'email' ? 'email' : 'text'}
+                              placeholder={field.label}
+                              value={val ?? ''}
+                              onChange={(e) => handleInputChange(field.id, e.target.value)}
+                              className="h-full w-full bg-transparent px-1 text-[11px] font-medium text-slate-900 outline-none placeholder:text-slate-500 md:text-xs"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="py-20 text-gray-500 italic text-sm">No document background available for preview.</div>
+            <div className="py-20 text-sm italic text-slate-500">No document background available.</div>
           )}
         </main>
       </form>
     </div>
+  );
+}
+
+function Shell({ children }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-10 text-center">
+      <FontLoader />
+      {children}
+    </div>
+  );
+}
+
+/* Loads the 3 handwriting fonts without touching global config */
+function FontLoader() {
+  return (
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Alex+Brush&family=Dancing+Script:wght@600&display=swap"
+    />
   );
 }

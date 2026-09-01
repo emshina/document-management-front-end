@@ -79,3 +79,24 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
 
   return response.json();
 }
+
+// Add this helper function to your existing lib/api.ts file
+export function getApiUrl(endpoint: string) {
+  let targetEndpoint = endpoint;
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    try {
+      const parsedUrl = new URL(endpoint);
+      targetEndpoint = parsedUrl.pathname + parsedUrl.search;
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  if (targetEndpoint.startsWith('/api/') || targetEndpoint === '/api') {
+    targetEndpoint = targetEndpoint.replace(/^\/api/, '');
+  }
+
+  const cleanBase = API_BASE_URL.replace(/\/+$/, '');
+  const cleanEndpoint = targetEndpoint.startsWith('/') ? targetEndpoint : `/${targetEndpoint}`;
+  return `${cleanBase}${cleanEndpoint}`;
+}
