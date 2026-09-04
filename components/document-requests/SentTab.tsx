@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Send, ChevronLeft, Upload, FileText, CheckCircle2, Clock, Eye, Trash2, XCircle, Code, ShieldAlert, Loader2 } from 'lucide-react';
 import { apiCall } from '@/lib/api';
+import { useTenant } from '@/hooks/useTenant';
 
 interface SentItemDocument {
   id: string | number;
@@ -37,6 +38,8 @@ export default function SentTab() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [forceUploaded, setForceUploaded] = useState<{ [key: string | number]: boolean }>({});
+  
+  const { primaryColor } = useTenant();
 
   const parseRequestList = (list: any[]): SentItem[] => {
     return list.map((item: any) => {
@@ -194,7 +197,8 @@ export default function SentTab() {
               setSelectedDocIndex(0);
               setShowDebug(false);
             }}
-            className="flex items-center gap-1.5 text-sm font-medium text-[#7C3AED] hover:underline cursor-pointer"
+            style={{ color: primaryColor }}
+            className="flex items-center gap-1.5 text-sm font-medium hover:underline cursor-pointer"
           >
             <ChevronLeft size={16} /> Back to Sent List
           </button>
@@ -222,9 +226,14 @@ export default function SentTab() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wider text-purple-700 mb-1">Recipient:</div>
+              <div 
+                style={{ color: primaryColor }}
+                className="text-xs font-semibold uppercase tracking-wider mb-1"
+              >
+                Recipient:
+              </div>
               <div className="flex items-center gap-2 text-sm text-gray-800 font-medium">
-                <Send size={14} className="text-[#7C3AED]" />
+                <Send size={14} style={{ color: primaryColor }} />
                 {selectedRequest.to} ({selectedRequest.recipient_name})
               </div>
             </div>
@@ -262,9 +271,9 @@ export default function SentTab() {
                 </div>
               </div>
 
-              <div className="bg-purple-50/40 border border-purple-200 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[240px]">
+              <div className="bg-gray-50/50 border border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[240px]">
                 {isDetailLoading ? (
-                  <div className="flex flex-col items-center gap-2 text-purple-700">
+                  <div className="flex flex-col items-center gap-2" style={{ color: primaryColor }}>
                     <Loader2 size={24} className="animate-spin" />
                     <span className="text-xs font-medium">Loading uploaded documents...</span>
                   </div>
@@ -324,10 +333,16 @@ export default function SentTab() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="p-3 bg-white text-[#7C3AED] rounded-full shadow-sm mx-auto w-fit">
+                    <div 
+                      style={{ color: primaryColor }}
+                      className="p-3 bg-white rounded-full shadow-sm mx-auto w-fit"
+                    >
                       <Upload size={24} />
                     </div>
-                    <h4 className="text-sm font-semibold text-[#7C3AED]">
+                    <h4 
+                      style={{ color: primaryColor }}
+                      className="text-sm font-semibold"
+                    >
                       {activeDoc ? activeDoc.document_title_requested : 'No Document Selected'}
                     </h4>
                     <p className="text-xs text-gray-500 flex items-center justify-center gap-1">
@@ -340,8 +355,11 @@ export default function SentTab() {
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col h-fit">
-            <h3 className="font-semibold text-sm text-gray-900 border-b border-gray-100 pb-3 mb-3 flex items-center gap-2">
-              <FileText size={16} className="text-[#7C3AED]" /> Checklist ({selectedRequest.items?.length || 0})
+            <h3 
+              style={{ color: primaryColor }}
+              className="font-semibold text-sm border-b border-gray-100 pb-3 mb-3 flex items-center gap-2"
+            >
+              <FileText size={16} /> Checklist ({selectedRequest.items?.length || 0})
             </h3>
             
             <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
@@ -350,23 +368,38 @@ export default function SentTab() {
               ) : selectedRequest.items && selectedRequest.items.length > 0 ? (
                 selectedRequest.items.map((doc, idx) => {
                   const itemUploaded = doc.is_uploaded || forceUploaded[doc.id];
+                  const isSelected = selectedDocIndex === idx;
                   return (
                     <div 
                       key={doc.id || idx}
                       onClick={() => setSelectedDocIndex(idx)}
+                      style={
+                        isSelected 
+                          ? { backgroundColor: `${primaryColor}10`, borderColor: primaryColor } 
+                          : {}
+                      }
                       className={`p-3 rounded-lg border cursor-pointer transition flex items-center justify-between ${
-                        selectedDocIndex === idx 
-                          ? 'bg-purple-50 border-[#7C3AED] text-purple-900 shadow-xs' 
+                        isSelected 
+                          ? 'text-gray-900 shadow-xs' 
                           : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'
                       }`}
                     >
                       <div>
                         <div className="text-xs font-semibold flex items-center gap-1.5">
-                          <Upload size={12} className={selectedDocIndex === idx ? 'text-[#7C3AED]' : 'text-gray-400'} />
+                          <Upload 
+                            size={12} 
+                            style={isSelected ? { color: primaryColor } : undefined}
+                            className={isSelected ? '' : 'text-gray-400'} 
+                          />
                           {doc.document_title_requested}
                         </div>
                         {doc.required && (
-                          <span className="text-[10px] text-purple-600 font-medium mt-0.5 block italic">Required</span>
+                          <span 
+                            style={{ color: primaryColor }}
+                            className="text-[10px] font-medium mt-0.5 block italic opacity-85"
+                          >
+                            Required
+                          </span>
                         )}
                       </div>
                       {itemUploaded && (
@@ -420,10 +453,15 @@ export default function SentTab() {
                 <tr 
                   key={item.id} 
                   onClick={() => handleSelectRequest(item)}
-                  className="hover:bg-purple-50/45 transition cursor-pointer"
+                  className="hover:bg-gray-50 transition cursor-pointer"
                 >
                   <td className="py-3.5 px-4 flex items-center gap-2.5 font-medium text-gray-900">
-                    <span className="p-1.5 bg-purple-100 text-[#7C3AED] rounded-md shrink-0"><Send size={14} /></span>
+                    <span 
+                      style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}
+                      className="p-1.5 rounded-md shrink-0"
+                    >
+                      <Send size={14} />
+                    </span>
                     <span className="truncate max-w-xs sm:max-w-md">{item.subject}</span>
                   </td>
                   <td className="py-3.5 px-4 text-gray-600 truncate max-w-[150px]">{item.to} ({item.recipient_name})</td>
@@ -434,7 +472,8 @@ export default function SentTab() {
                       type="checkbox" 
                       disabled 
                       checked={item.completed} 
-                      className="rounded text-[#7C3AED] cursor-default accent-[#7C3AED]" 
+                      style={{ accentColor: primaryColor }}
+                      className="rounded cursor-default" 
                     />
                   </td>
                 </tr>

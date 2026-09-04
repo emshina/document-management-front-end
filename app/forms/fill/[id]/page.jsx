@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 
 const BASE_WIDTH = 800;
 const API = 'http://localhost:8000';
 
-// 3 real-signature style options (loaded from Google Fonts below)
 const SIGNATURE_FONTS = [
   { name: 'Great Vibes', family: "'Great Vibes', cursive" },
   { name: 'Alex Brush', family: "'Alex Brush', cursive" },
@@ -18,7 +17,14 @@ const isDateField = (t) => t === 'date' || t === 'sign_date';
 
 export default function FillFormPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
   const id = params?.id;
+  const requestToken = searchParams.get('request_token');
+  const itemId = searchParams.get('item_id');
+  // Optional: You can pass a `return_url` query param from your portal, or fall back to a default route
+  const returnUrl = searchParams.get('return_url');
 
   const [formTemplate, setFormTemplate] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -26,7 +32,7 @@ export default function FillFormPage() {
 
   const [fieldValues, setFieldValues] = useState({});
   const [signatureStyles, setSignatureStyles] = useState({});
-  const [activeSigField, setActiveSigField] = useState(null); // fieldId whose style picker is open
+  const [activeSigField, setActiveSigField] = useState(null);
   const [documentUrl, setDocumentUrl] = useState(null);
   const [isImageFile, setIsImageFile] = useState(false);
 
@@ -59,7 +65,6 @@ export default function FillFormPage() {
         (Array.isArray(data.fields) ? data.fields : []).forEach((field) => {
           if (!field.id) return;
           if (isDateField(field.field_type)) {
-            // Date fields are permanently prefilled with today's date
             initialValues[field.id] = field.value || todayISO();
           } else {
             initialValues[field.id] = field.value !== undefined && field.value !== null ? field.value : '';
@@ -208,11 +213,12 @@ export default function FillFormPage() {
         field_values: Object.keys(fieldValues).map((fieldId) => ({
           form_field: fieldId,
           value: fieldValues[fieldId],
-          // persist the chosen signature style so the rendered doc matches
           ...(signatureStyles[fieldId] !== undefined
             ? { signature_font: SIGNATURE_FONTS[signatureStyles[fieldId]].name }
             : {}),
         })),
+        ...(requestToken ? { request_token: requestToken } : {}),
+        ...(itemId ? { item_id: itemId } : {}),
       };
 
       const response = await fetch(
@@ -220,10 +226,21 @@ export default function FillFormPage() {
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
       );
       if (!response.ok) throw new Error('Failed to submit form response.');
+      
       setSuccess(true);
+
+      // Automatically route back after a brief pause, or instantly
+      setTimeout(() => {
+        if (returnUrl) {
+          router.push(returnUrl);
+        } else {
+          // Fallback: go back in browser history (returns to the main upload portal page)
+          router.back();
+        }
+      }, 1200);
+
     } catch (err) {
       alert(err.message);
-    } finally {
       setSubmitting(false);
     }
   };
@@ -236,8 +253,8 @@ export default function FillFormPage() {
       <Shell>
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-2xl text-emerald-400">✓</div>
-          <h2 className="text-xl font-semibold text-white">Document signed</h2>
-          <p className="mt-1 text-sm text-slate-400">Your completed copy has been submitted.</p>
+          <h2 className="text-xl font-semibold text-white">Document signed successfully!</h2>
+          <p className="mt-1 text-sm text-slate-400">Redirecting back to your upload portal...</p>
         </div>
       </Shell>
     );
@@ -249,9 +266,16 @@ export default function FillFormPage() {
         {/* Header */}
         <header className="sticky top-0 z-50 flex flex-col items-center justify-between gap-4 border-b border-slate-800 bg-slate-900/90 px-6 py-4 backdrop-blur md:flex-row">
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              {formTemplate?.name || formTemplate?.title || 'Document'}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold tracking-tight">
+                {formTemplate?.name || formTemplate?.title || 'Document'}
+              </h1>
+              {requestToken && (
+                <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
+                  Requested Portal Item
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-400">
               Click a field on the document to fill it. Signatures are generated from your typed name.
             </p>
@@ -331,7 +355,6 @@ export default function FillFormPage() {
                               : 'bg-indigo-50/70 ring-1 ring-inset ring-indigo-400 hover:bg-indigo-50 focus-within:ring-2 focus-within:ring-indigo-600'
                           }`}
                         >
-                          {/* checkbox / radio */}
                           {field.field_type === 'checkbox' || field.field_type === 'radio' ? (
                             <label className="flex h-full w-full cursor-pointer items-center gap-1.5 px-1">
                               <input
@@ -357,7 +380,6 @@ export default function FillFormPage() {
                               })}
                             </select>
                           ) : isDateField(field.field_type) ? (
-                            /* date — permanently prefilled with today, still editable */
                             <input
                               type="date"
                               value={val || todayISO()}
@@ -378,8 +400,6 @@ export default function FillFormPage() {
                               {isFilled && (
                                 <span className="pointer-events-none absolute bottom-0 left-1 right-1 border-b border-slate-400/70" />
                               )}
-
-                              {/* style picker */}
                               {activeSigField === field.id && String(val || '').trim() !== '' && (
                                 <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl">
                                   <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
@@ -441,7 +461,6 @@ function Shell({ children }) {
   );
 }
 
-/* Loads the 3 handwriting fonts without touching global config */
 function FontLoader() {
   return (
     <link

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Send, Upload, X } from 'lucide-react';
 import { apiCall } from '../../lib/api';
+import { useTenant } from '@/hooks/useTenant';
 
 interface TemplateDocument {
   id: string;
@@ -43,6 +44,8 @@ export default function TemplatesAndRequestsModule() {
   const [requestToEmail, setRequestToEmail] = useState('');
   const [requestMessage, setRequestMessage] = useState('');
   const [requestDocuments, setRequestDocuments] = useState<TemplateDocument[]>([]);
+
+  const { primaryColor } = useTenant();
 
   // Fetch templates from Django database and normalize keys (template_name <-> subject)
   useEffect(() => {
@@ -91,6 +94,44 @@ export default function TemplatesAndRequestsModule() {
     setDocuments([{ id: '1', name: '', required: true, rename: false, allowMultiple: false }]);
   };
 
+  const handleUseTemplate = (template: RequestTemplate) => {
+    setRequestSubject(template.subject);
+    setRequestToEmail(template.toEmail);
+    setRequestMessage(template.message);
+    setRequestDocuments(template.documents || []);
+    setCurrentView('create-request');
+  };
+
+  const handleSendRequest = async () => {
+    if (!requestSubject.trim()) {
+      alert('Please enter a request subject.');
+      return;
+    }
+
+    const payload = {
+      subject: requestSubject,
+      recipient_email: requestToEmail,
+      message: requestMessage,
+      items: requestDocuments.map(doc => ({
+        document_title_requested: doc.name,
+        is_required: doc.required
+      }))
+    };
+
+    try {
+      await apiCall('/v1/document-requests/requests/', {
+        method: 'POST',
+        requiresAuth: true,
+        body: JSON.stringify(payload)
+      });
+      alert('Document request sent successfully!');
+      setCurrentView('list');
+    } catch (error: any) {
+      console.error('Failed to send request:', error);
+      alert(`Failed to send request: ${error.message}`);
+    }
+  };
+
   // Save Template to Django database with correct backend field names
   const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,7 +147,7 @@ export default function TemplatesAndRequestsModule() {
       message,
       expires: timeframeEnabled ? `${days} days` : 'No expiry',
       items: documents.map(doc => ({
-        document_title_requested: doc.name, // Updated to match backend field error
+        document_title_requested: doc.name,
         required: doc.required,
         rename: doc.rename,
         allow_multiple: doc.allowMultiple
@@ -159,7 +200,7 @@ export default function TemplatesAndRequestsModule() {
             </div>
             <button 
               onClick={() => setCurrentView('list')}
-              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
             >
               <X size={20} />
             </button>
@@ -173,7 +214,8 @@ export default function TemplatesAndRequestsModule() {
                 placeholder="e.g. Quarterly Compliance Submission"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-[#7C3AED]"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current"
                 required
               />
             </div>
@@ -185,7 +227,8 @@ export default function TemplatesAndRequestsModule() {
                 placeholder="recipient@company.com"
                 value={toEmail}
                 onChange={(e) => setToEmail(e.target.value)}
-                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-[#7C3AED]"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current"
               />
             </div>
 
@@ -196,13 +239,14 @@ export default function TemplatesAndRequestsModule() {
                 placeholder="Type the standard message..."
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-[#7C3AED] resize-none"
+                style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current resize-none"
               />
             </div>
 
             {/* Documents Section */}
             <div className="pt-6 border-t border-gray-200">
-              <h3 className="text-[#7C3AED] font-semibold text-sm mb-4">Documents To Request in Template</h3>
+              <h3 style={{ color: primaryColor }} className="font-semibold text-sm mb-4">Documents To Request in Template</h3>
               <div className="space-y-4">
                 {documents.map((doc, index) => (
                   <div key={doc.id} className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between gap-4">
@@ -217,7 +261,8 @@ export default function TemplatesAndRequestsModule() {
                             updated[index].name = e.target.value;
                             setDocuments(updated);
                           }}
-                          className="flex-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg outline-none focus:border-[#7C3AED]"
+                          style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                          className="flex-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg outline-none focus:border-current"
                           required
                         />
                         <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
@@ -229,7 +274,8 @@ export default function TemplatesAndRequestsModule() {
                               updated[index].required = e.target.checked;
                               setDocuments(updated);
                             }}
-                            className="rounded text-[#7C3AED]"
+                            style={{ accentColor: primaryColor }}
+                            className="rounded"
                           /> Required
                         </label>
                       </div>
@@ -237,7 +283,7 @@ export default function TemplatesAndRequestsModule() {
                     <button 
                       type="button" 
                       onClick={() => handleRemoveDocumentRow(doc.id)}
-                      className="text-gray-400 hover:text-red-500 transition"
+                      className="text-gray-400 hover:text-red-500 transition cursor-pointer"
                     >
                       <X size={18} />
                     </button>
@@ -247,7 +293,8 @@ export default function TemplatesAndRequestsModule() {
               <button 
                 type="button" 
                 onClick={handleAddDocumentRow}
-                className="mt-4 px-4 py-2 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-purple-700 transition"
+                style={{ backgroundColor: primaryColor }}
+                className="mt-4 px-4 py-2 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition cursor-pointer"
               >
                 + Add Another Document
               </button>
@@ -257,13 +304,14 @@ export default function TemplatesAndRequestsModule() {
               <button 
                 type="button"
                 onClick={() => setCurrentView('list')}
-                className="px-5 py-2 border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg"
+                className="px-5 py-2 border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition cursor-pointer"
               >
                 Cancel
               </button>
               <button 
                 type="submit"
-                className="px-6 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-purple-700"
+                style={{ backgroundColor: primaryColor }}
+                className="px-6 py-2 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition cursor-pointer"
               >
                 Save Template
               </button>
@@ -281,13 +329,15 @@ export default function TemplatesAndRequestsModule() {
         <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
           <button 
             onClick={() => setCurrentView('list')}
-            className="text-sm font-semibold text-[#7C3AED] hover:underline"
+            style={{ color: primaryColor }}
+            className="text-sm font-semibold hover:underline cursor-pointer"
           >
             ← Back to Templates List
           </button>
           <button 
             onClick={() => handleUseTemplate(selectedTemplate)}
-            className="px-4 py-2 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-purple-700 shadow-sm"
+            style={{ backgroundColor: primaryColor }}
+            className="px-4 py-2 text-white text-xs font-semibold rounded-lg hover:opacity-90 shadow-sm transition cursor-pointer"
           >
             Use This Template
           </button>
@@ -303,13 +353,16 @@ export default function TemplatesAndRequestsModule() {
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-fit">
-            <div className="p-4 bg-gray-50 border-b border-gray-200 font-semibold text-sm text-[#7C3AED]">
+            <div 
+              style={{ color: primaryColor, backgroundColor: `${primaryColor}10` }}
+              className="p-4 border-b border-gray-200 font-semibold text-sm"
+            >
               Requested Documents ({selectedTemplate.documents?.length || 0})
             </div>
             <div className="divide-y divide-gray-100">
               {selectedTemplate.documents?.map((doc, idx) => (
                 <div key={idx} className="p-3.5 text-sm font-medium text-gray-900 flex items-center gap-2">
-                  <Upload size={14} className="text-[#7C3AED]" />
+                  <Upload size={14} style={{ color: primaryColor }} />
                   <span>{doc.name}</span>
                 </div>
               ))}
@@ -329,7 +382,7 @@ export default function TemplatesAndRequestsModule() {
             <h2 className="text-lg font-bold text-gray-900">New Document Request (Auto-Filled)</h2>
             <p className="text-xs text-gray-500">Fields and files below were auto-populated from your template database.</p>
           </div>
-          <button onClick={() => setCurrentView('list')} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+          <button onClick={() => setCurrentView('list')} className="text-gray-400 hover:text-gray-600 cursor-pointer"><X size={20} /></button>
         </div>
 
         <div className="space-y-4">
@@ -339,7 +392,8 @@ export default function TemplatesAndRequestsModule() {
               type="text" 
               value={requestSubject} 
               onChange={(e) => setRequestSubject(e.target.value)}
-              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-[#7C3AED]" 
+              style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current" 
             />
           </div>
 
@@ -349,7 +403,8 @@ export default function TemplatesAndRequestsModule() {
               type="email" 
               value={requestToEmail} 
               onChange={(e) => setRequestToEmail(e.target.value)}
-              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-[#7C3AED]" 
+              style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current" 
             />
           </div>
 
@@ -359,25 +414,41 @@ export default function TemplatesAndRequestsModule() {
               rows={3} 
               value={requestMessage} 
               onChange={(e) => setRequestMessage(e.target.value)}
-              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-[#7C3AED]" 
+              style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+              className="w-full sm:max-w-xl px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-current resize-none" 
             />
           </div>
 
           <div className="pt-4 border-t border-gray-200">
-            <h3 className="text-sm font-semibold text-[#7C3AED] mb-3">Auto-Loaded Files to be Uploaded:</h3>
+            <h3 style={{ color: primaryColor }} className="text-sm font-semibold mb-3">Auto-Loaded Files to be Uploaded:</h3>
             <div className="space-y-2 max-w-xl">
               {requestDocuments.map((doc, i) => (
-                <div key={i} className="p-3 bg-purple-50/50 border border-purple-200 rounded-lg flex items-center justify-between text-sm">
+                <div 
+                  key={i} 
+                  style={{ backgroundColor: `${primaryColor}08`, borderColor: `${primaryColor}30` }}
+                  className="p-3 border rounded-lg flex items-center justify-between text-sm"
+                >
                   <span className="font-medium text-gray-800">{doc.name}</span>
-                  <span className="text-xs text-purple-700 font-semibold bg-purple-100 px-2 py-0.5 rounded">Required</span>
+                  <span 
+                    style={{ color: primaryColor, backgroundColor: `${primaryColor}15` }}
+                    className="text-xs font-semibold px-2 py-0.5 rounded"
+                  >
+                    Required
+                  </span>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="pt-4 flex gap-3">
-            <button onClick={() => setCurrentView('list')} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
-            <button onClick={handleSendRequest} className="px-5 py-2 bg-[#7C3AED] text-white rounded-lg text-sm font-semibold">Send Request</button>
+            <button onClick={() => setCurrentView('list')} className="px-4 py-2 border rounded-lg text-sm cursor-pointer hover:bg-gray-50">Cancel</button>
+            <button 
+              onClick={handleSendRequest} 
+              style={{ backgroundColor: primaryColor }}
+              className="px-5 py-2 text-white rounded-lg text-sm font-semibold hover:opacity-90 transition cursor-pointer"
+            >
+              Send Request
+            </button>
           </div>
         </div>
       </div>
@@ -390,7 +461,8 @@ export default function TemplatesAndRequestsModule() {
       <div className="flex justify-end">
         <button 
           onClick={() => { setIsCreatingDefaults(); setCurrentView('create-template'); }}
-          className="px-4 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:bg-purple-700 shadow-sm"
+          style={{ backgroundColor: primaryColor }}
+          className="px-4 py-2 text-white text-sm font-semibold rounded-lg flex items-center gap-2 hover:opacity-90 shadow-sm transition cursor-pointer"
         >
           <Plus size={16} /> New Request Template
         </button>
@@ -399,7 +471,7 @@ export default function TemplatesAndRequestsModule() {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-gray-200 text-xs font-semibold text-gray-600 bg-gray-50">
+            <tr className="border-b border-gray-200 text-xs font-semibold text-gray-600 bg-gray-50/70">
               <th className="py-3 px-4">Subject</th>
               <th className="py-3 px-4">To Email</th>
               <th className="py-3 px-4">Created On</th>
@@ -416,10 +488,16 @@ export default function TemplatesAndRequestsModule() {
                 <tr 
                   key={item.id} 
                   onClick={() => { setSelectedTemplate(item); setCurrentView('view-template'); }}
-                  className="hover:bg-purple-50/40 transition cursor-pointer"
+                  style={{ '--hover-bg': `${primaryColor}08` } as React.CSSProperties}
+                  className="hover:bg-[var(--hover-bg)] transition cursor-pointer"
                 >
                   <td className="py-3.5 px-4 font-medium text-gray-900 flex items-center gap-2">
-                    <span className="p-1.5 bg-purple-100 text-[#7C3AED] rounded-md"><Send size={14} /></span>
+                    <span 
+                      style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}
+                      className="p-1.5 rounded-md"
+                    >
+                      <Send size={14} />
+                    </span>
                     {item.subject}
                   </td>
                   <td className="py-3.5 px-4 text-gray-600">{item.toEmail}</td>

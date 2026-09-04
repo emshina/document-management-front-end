@@ -6,6 +6,7 @@ import {
   CheckSquare, Calendar, Mail, User, FileSignature,
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, ExternalLink
 } from 'lucide-react';
+import { useTenant } from '@/hooks/useTenant';
 
 interface FormTemplateBuilderProps {
   isOpen: boolean;
@@ -49,6 +50,8 @@ export default function FormTemplateBuilder({
   editingTemplate,
   apiCall,
 }: FormTemplateBuilderProps) {
+  const { primaryColor } = useTenant();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -156,62 +159,60 @@ export default function FormTemplateBuilder({
   /* ------------------------------------------------------------------ */
   /* PDF rendering with pdf.js (replaces the <iframe>)                   */
   /* ------------------------------------------------------------------ */
-useEffect(() => {
-  let cancelled = false;
+  useEffect(() => {
+    let cancelled = false;
 
-  const loadPdf = async () => {
-    if (!filePreviewUrl || isImageFile) {
-      pdfDocRef.current = null;
-      setPdfReady(false);
-      return;
-    }
-
-    try {
-      setPdfReady(false);
-
-      const pdfjs: any = await import('pdfjs-dist');
-
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url
-      ).toString();
-
-      const loadingTask = pdfjs.getDocument({ url: filePreviewUrl });
-      const doc = await loadingTask.promise;
-
-      if (cancelled) {
-        await doc.destroy();
+    const loadPdf = async () => {
+      if (!filePreviewUrl || isImageFile) {
+        pdfDocRef.current = null;
+        setPdfReady(false);
         return;
       }
 
-      pdfDocRef.current = doc;
-      setTotalPages(doc.numPages);
-      setCurrentPage(1);
-      setPdfReady(true);
-    } catch (error) {
-      console.error('PDF load failed:', error);
-      setPdfReady(false);
-    }
-  };
+      try {
+        setPdfReady(false);
 
-  loadPdf();
+        const pdfjs: any = await import('pdfjs-dist');
 
-  return () => {
-    cancelled = true;
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch {}
-      renderTaskRef.current = null;
-    }
-    if (pdfDocRef.current) {
-      try { pdfDocRef.current.destroy(); } catch {}
-      pdfDocRef.current = null;
-    }
-  };
-}, [filePreviewUrl, isImageFile]);
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).toString();
 
+        const loadingTask = pdfjs.getDocument({ url: filePreviewUrl });
+        const doc = await loadingTask.promise;
 
+        if (cancelled) {
+          await doc.destroy();
+          return;
+        }
 
-const renderPdfPage = useCallback(async () => {
+        pdfDocRef.current = doc;
+        setTotalPages(doc.numPages);
+        setCurrentPage(1);
+        setPdfReady(true);
+      } catch (error) {
+        console.error('PDF load failed:', error);
+        setPdfReady(false);
+      }
+    };
+
+    loadPdf();
+
+    return () => {
+      cancelled = true;
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch {}
+        renderTaskRef.current = null;
+      }
+      if (pdfDocRef.current) {
+        try { pdfDocRef.current.destroy(); } catch {}
+        pdfDocRef.current = null;
+      }
+    };
+  }, [filePreviewUrl, isImageFile]);
+
+  const renderPdfPage = useCallback(async () => {
     const doc = pdfDocRef.current;
     const canvasEl = pdfCanvasRef.current;
     if (!doc || !canvasEl || !pdfReady) return;
@@ -301,7 +302,7 @@ const renderPdfPage = useCallback(async () => {
     setIsResizing(true);
   };
 
-useEffect(() => {
+  useEffect(() => {
     if (!isDragging && !isResizing) return;
 
     const onMove = (e: MouseEvent) => {
@@ -417,13 +418,15 @@ useEffect(() => {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Enter Template Title (e.g. Employee Onboarding)"
-            className="font-bold text-gray-900 text-base border-b border-gray-200 hover:border-gray-400 focus:border-[#7C3AED] outline-none px-2 py-1 w-96 transition"
+            style={{ '--focus-color': primaryColor } as React.CSSProperties}
+            className="font-bold text-gray-900 text-base border-b border-gray-200 hover:border-gray-400 focus:border-[var(--focus-color)] outline-none px-2 py-1 w-96 transition"
           />
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={handleSaveTemplate}
-            className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-sm transition"
+            style={{ backgroundColor: primaryColor }}
+            className="hover:opacity-90 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-sm transition"
           >
             <Save size={16} />
             Save Template &amp; Fields ({placedFields.length})
@@ -442,12 +445,15 @@ useEffect(() => {
         >
           {!filePreviewUrl ? (
             <div className="my-auto bg-white border-2 border-dashed border-gray-300 rounded-2xl p-12 text-center max-w-lg shadow-md">
-              <Upload size={48} className="mx-auto text-purple-600 mb-3" />
+              <Upload size={48} style={{ color: primaryColor }} className="mx-auto mb-3" />
               <h3 className="text-base font-bold text-gray-800">Upload Document Template</h3>
               <p className="text-xs text-gray-500 mt-1 mb-6">
                 Upload a PDF or image file to render the document background workspace.
               </p>
-              <label className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-6 py-3 rounded-xl text-sm font-medium cursor-pointer shadow-sm transition inline-block">
+              <label 
+                style={{ backgroundColor: primaryColor }}
+                className="hover:opacity-90 text-white px-6 py-3 rounded-xl text-sm font-medium cursor-pointer shadow-sm transition inline-block"
+              >
                 Browse File (PDF / Image)
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleFileUpload} className="hidden" />
               </label>
@@ -479,7 +485,8 @@ useEffect(() => {
                 </div>
                 <div className="h-4 w-px bg-gray-200" />
                 <a href={filePreviewUrl} target="_blank" rel="noreferrer"
-                  className="text-[#7C3AED] font-medium flex items-center gap-1 hover:underline">
+                  style={{ color: primaryColor }}
+                  className="font-medium flex items-center gap-1 hover:underline">
                   Open File in New Tab <ExternalLink size={12} />
                 </a>
               </div>
@@ -530,11 +537,13 @@ useEffect(() => {
                               left: `${field.x_coord}%`,
                               width: `${field.width}%`,
                               height: `${field.height}%`,
+                              borderColor: isSelected ? primaryColor : primaryColor,
+                              boxShadow: isSelected ? `0 0 0 2px ${primaryColor}40` : undefined,
                             }}
                             className={`absolute pointer-events-auto bg-white/90 border-2 ${
                               isSelected
-                                ? 'border-purple-700 shadow-xl ring-2 ring-purple-300 z-30'
-                                : 'border-[#7C3AED] shadow-sm z-20'
+                                ? 'shadow-xl z-30'
+                                : 'shadow-sm z-20'
                             } rounded-md text-xs flex items-center cursor-move group overflow-hidden`}
                           >
                             <div className="w-full h-full flex items-center px-1.5"
@@ -544,12 +553,13 @@ useEffect(() => {
                                   <input
                                     type="checkbox"
                                     checked={!!field.value}
+                                    style={{ color: primaryColor }}
                                     onChange={(e) => {
                                       const checked = e.target.checked;
                                       setPlacedFields((prev) => prev.map((f) =>
                                         f.temp_id === field.temp_id ? { ...f, value: checked } : f));
                                     }}
-                                    className="rounded text-[#7C3AED] focus:ring-[#7C3AED]"
+                                    className="rounded focus:ring-[var(--focus-color)]"
                                   />
                                   <span className="text-[11px] text-gray-700 truncate">{field.label}</span>
                                 </div>
@@ -595,7 +605,8 @@ useEffect(() => {
 
                             <div
                               onMouseDown={(e) => handleResizeMouseDown(e, field)}
-                              className="absolute bottom-0 right-0 w-3 h-3 bg-purple-600 cursor-se-resize rounded-tl flex items-center justify-center opacity-0 group-hover:opacity-100 transition z-40"
+                              style={{ backgroundColor: primaryColor }}
+                              className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize rounded-tl flex items-center justify-center opacity-0 group-hover:opacity-100 transition z-40"
                             >
                               <Maximize2 size={6} className="text-white" />
                             </div>
@@ -616,7 +627,13 @@ useEffect(() => {
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <h3 className="font-bold text-gray-800 text-sm">Field Properties</h3>
-                  <button onClick={() => setActiveFieldId(null)} className="text-xs text-purple-600 hover:underline">Done</button>
+                  <button 
+                    onClick={() => setActiveFieldId(null)} 
+                    style={{ color: primaryColor }}
+                    className="text-xs font-semibold hover:underline"
+                  >
+                    Done
+                  </button>
                 </div>
                 <p className="text-xs text-gray-500">Configure label, dimensions &amp; settings.</p>
               </div>
@@ -627,12 +644,13 @@ useEffect(() => {
                   <input
                     type="text"
                     value={activeField.label}
+                    style={{ '--focus-color': primaryColor } as React.CSSProperties}
                     onChange={(e) => {
                       const val = e.target.value;
                       setPlacedFields((prev) => prev.map((f) =>
                         f.temp_id === activeField.temp_id ? { ...f, label: val } : f));
                     }}
-                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[#7C3AED]"
+                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[var(--focus-color)]"
                   />
                 </div>
 
@@ -642,12 +660,13 @@ useEffect(() => {
                     <input
                       type="number" step="0.5" min="5" max="60"
                       value={activeField.width}
+                      style={{ '--focus-color': primaryColor } as React.CSSProperties}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 18;
                         setPlacedFields((prev) => prev.map((f) =>
                           f.temp_id === activeField.temp_id ? { ...f, width: val } : f));
                       }}
-                      className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[#7C3AED]"
+                      className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[var(--focus-color)]"
                     />
                   </div>
                   <div>
@@ -655,12 +674,13 @@ useEffect(() => {
                     <input
                       type="number" step="0.5" min="1.5" max="25"
                       value={activeField.height}
+                      style={{ '--focus-color': primaryColor } as React.CSSProperties}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 4;
                         setPlacedFields((prev) => prev.map((f) =>
                           f.temp_id === activeField.temp_id ? { ...f, height: val } : f));
                       }}
-                      className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[#7C3AED]"
+                      className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-[var(--focus-color)]"
                     />
                   </div>
                 </div>
@@ -670,12 +690,13 @@ useEffect(() => {
                     type="checkbox"
                     id="isRequired"
                     checked={!!activeField.is_required}
+                    style={{ color: primaryColor }}
                     onChange={(e) => {
                       const checked = e.target.checked;
                       setPlacedFields((prev) => prev.map((f) =>
                         f.temp_id === activeField.temp_id ? { ...f, is_required: checked } : f));
                     }}
-                    className="rounded text-[#7C3AED] focus:ring-[#7C3AED]"
+                    className="rounded focus:ring-[var(--focus-color)]"
                   />
                   <label htmlFor="isRequired" className="font-medium text-gray-700 cursor-pointer">Required Field</label>
                 </div>
@@ -703,7 +724,8 @@ useEffect(() => {
                   <input
                     type="text" value={title} onChange={(e) => setTitle(e.target.value)}
                     placeholder="e.g. Onboarding Contract"
-                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#7C3AED]"
+                    style={{ '--focus-color': primaryColor } as React.CSSProperties}
+                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[var(--focus-color)]"
                   />
                 </div>
                 <div>
@@ -711,7 +733,8 @@ useEffect(() => {
                   <textarea
                     value={description} onChange={(e) => setDescription(e.target.value)}
                     placeholder="Brief summary..." rows={2}
-                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#7C3AED] resize-none"
+                    style={{ '--focus-color': primaryColor } as React.CSSProperties}
+                    className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[var(--focus-color)] resize-none"
                   />
                 </div>
               </div>
@@ -726,9 +749,10 @@ useEffect(() => {
                         draggable
                         onDragStart={() => setDraggedFieldDef({ category: 'standard', type: f.type, label: f.label })}
                         onDragEnd={() => setDraggedFieldDef(null)}
-                        className="bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-[#7C3AED] text-gray-700 hover:text-[#7C3AED] p-2.5 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing transition text-center flex flex-col items-center gap-1.5"
+                        style={{ '--hover-color': primaryColor, '--hover-bg': `${primaryColor}10` } as React.CSSProperties}
+                        className="bg-gray-50 hover:bg-[var(--hover-bg)] border border-gray-200 hover:border-[var(--hover-color)] text-gray-700 hover:text-[var(--hover-color)] p-2.5 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing transition text-center flex flex-col items-center gap-1.5"
                       >
-                        <f.icon size={15} className="text-purple-600" />
+                        <f.icon size={15} style={{ color: primaryColor }} />
                         {f.label}
                       </div>
                     ))}
@@ -744,9 +768,10 @@ useEffect(() => {
                         draggable
                         onDragStart={() => setDraggedFieldDef({ category: 'custom', type: f.type, label: f.label })}
                         onDragEnd={() => setDraggedFieldDef(null)}
-                        className="bg-gray-50 hover:bg-purple-50 border border-gray-200 hover:border-[#7C3AED] text-gray-700 hover:text-[#7C3AED] p-2.5 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing transition text-center flex flex-col items-center gap-1.5"
+                        style={{ '--hover-color': primaryColor, '--hover-bg': `${primaryColor}10` } as React.CSSProperties}
+                        className="bg-gray-50 hover:bg-[var(--hover-bg)] border border-gray-200 hover:border-[var(--hover-color)] text-gray-700 hover:text-[var(--hover-color)] p-2.5 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing transition text-center flex flex-col items-center gap-1.5"
                       >
-                        <f.icon size={15} className="text-purple-600" />
+                        <f.icon size={15} style={{ color: primaryColor }} />
                         {f.label}
                       </div>
                     ))}

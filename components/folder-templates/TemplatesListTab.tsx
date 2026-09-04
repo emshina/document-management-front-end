@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { FolderTree, Plus, Trash2, Play, Folder, ChevronRight, Layers, X, AlertCircle } from "lucide-react";
 import { apiCall } from "@/lib/api";
+import { useTenant } from "@/hooks/useTenant";
 
 interface TemplateItem {
   id: string;
@@ -22,6 +23,8 @@ interface FolderTemplate {
 }
 
 export default function TemplatesListTab() {
+  const { primaryColor } = useTenant();
+
   const [templates, setTemplates] = useState<FolderTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<FolderTemplate | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -58,7 +61,6 @@ export default function TemplatesListTab() {
       setTemplates(templateArray);
       
       if (templateArray.length > 0) {
-        // Keep currently selected template updated if it exists in the new list, otherwise default to first
         setSelectedTemplate(prev => {
           const found = templateArray.find((t: FolderTemplate) => t.id === prev?.id);
           return found || templateArray[0];
@@ -146,7 +148,7 @@ export default function TemplatesListTab() {
         method: "POST",
         requiresAuth: true,
         body: JSON.stringify({
-          parent: activeParentItemId, // null for root, or UUID of parent item
+          parent: activeParentItemId,
           name: newItemName,
           folder_type: newItemFolderType
         })
@@ -157,7 +159,6 @@ export default function TemplatesListTab() {
       setIsItemModalOpen(false);
       setActiveParentItemId(null);
       
-      // Refresh list to pull updated items tree
       const updatedList = await apiCall('/v1/documents/folder-templates/', { requiresAuth: true });
       const templateArray = Array.isArray(updatedList) ? updatedList : (updatedList?.results || []);
       setTemplates(templateArray);
@@ -177,7 +178,7 @@ export default function TemplatesListTab() {
           <li key={item.id} className="text-gray-700">
             <div className="flex items-center justify-between py-1 px-2 hover:bg-gray-50 rounded-md group">
               <div className="flex items-center space-x-2">
-                <Folder className="w-4 h-4 text-[#7C3AED]" />
+                <Folder className="w-4 h-4" style={{ color: primaryColor }} />
                 <span className="font-medium text-sm">{item.name}</span>
                 <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                   {item.folder_type}
@@ -188,7 +189,8 @@ export default function TemplatesListTab() {
                   setActiveParentItemId(item.id);
                   setIsItemModalOpen(true);
                 }}
-                className="opacity-0 group-hover:opacity-100 text-xs text-[#7C3AED] hover:underline flex items-center gap-1 bg-purple-50 px-2 py-1 rounded transition"
+                style={{ '--hover-color': primaryColor } as React.CSSProperties}
+                className="opacity-0 group-hover:opacity-100 text-xs hover:underline flex items-center gap-1 px-2 py-1 rounded transition"
                 title="Add Subfolder Blueprint"
               >
                 <Plus size={12} /> Add Subfolder
@@ -211,7 +213,8 @@ export default function TemplatesListTab() {
         </div>
         <button
           onClick={() => setIsCreateModalOpen(true)}
-          className="px-4 py-2 bg-[#7C3AED] text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-purple-700 transition shadow-sm"
+          style={{ backgroundColor: primaryColor }}
+          className="px-4 py-2 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:opacity-90 transition shadow-sm"
         >
           <Plus size={16} /> New Template
         </button>
@@ -242,10 +245,11 @@ export default function TemplatesListTab() {
                 <div
                   key={tmpl.id}
                   onClick={() => setSelectedTemplate(tmpl)}
-                  className={`p-3 rounded-lg cursor-pointer transition flex items-center justify-between ${
+                  style={selectedTemplate?.id === tmpl.id ? { borderColor: primaryColor } : undefined}
+                  className={`p-3 rounded-lg cursor-pointer transition flex items-center justify-between border ${
                     selectedTemplate?.id === tmpl.id
-                      ? "bg-purple-50 border border-purple-200 text-purple-900 font-medium"
-                      : "hover:bg-gray-50 text-gray-700"
+                      ? "bg-gray-50 font-medium text-gray-900"
+                      : "border-transparent hover:bg-gray-50 text-gray-700"
                   }`}
                 >
                   <div className="truncate pr-2">
@@ -274,13 +278,15 @@ export default function TemplatesListTab() {
                       setActiveParentItemId(null);
                       setIsItemModalOpen(true);
                     }}
-                    className="bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+                    style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}
+                    className="hover:opacity-80 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
                   >
                     <Plus size={14} /> Add Root Folder
                   </button>
                   <button
                     onClick={() => setIsApplyModalOpen(true)}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                    style={{ backgroundColor: primaryColor }}
+                    className="text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm hover:opacity-90"
                   >
                     <Play size={14} /> Apply Template
                   </button>
@@ -338,7 +344,8 @@ export default function TemplatesListTab() {
                   value={newTemplateName}
                   onChange={(e) => setNewTemplateName(e.target.value)}
                   placeholder="e.g. Standard Corporate Client Kit"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#7C3AED]"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div>
@@ -348,7 +355,8 @@ export default function TemplatesListTab() {
                   onChange={(e) => setNewTemplateDesc(e.target.value)}
                   placeholder="Describe folder purposes..."
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#7C3AED]"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -361,7 +369,8 @@ export default function TemplatesListTab() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#7C3AED] text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+                  style={{ backgroundColor: primaryColor }}
+                  className="px-4 py-2 text-white rounded-lg text-sm font-medium hover:opacity-90"
                 >
                   Save Template
                 </button>
@@ -392,7 +401,8 @@ export default function TemplatesListTab() {
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
                   placeholder="e.g. Financial Statements"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#7C3AED]"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div>
@@ -402,7 +412,8 @@ export default function TemplatesListTab() {
                   value={newItemFolderType}
                   onChange={(e) => setNewItemFolderType(e.target.value)}
                   placeholder="DEFAULT, SECURE, etc."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#7C3AED]"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -415,7 +426,8 @@ export default function TemplatesListTab() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#7C3AED] text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+                  style={{ backgroundColor: primaryColor }}
+                  className="px-4 py-2 text-white rounded-lg text-sm font-medium hover:opacity-90"
                 >
                   Create Folder Node
                 </button>
@@ -446,7 +458,8 @@ export default function TemplatesListTab() {
                   value={targetCabinetId}
                   onChange={(e) => setTargetCabinetId(e.target.value)}
                   placeholder="e.g. c1d2e3f4-..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div className="text-center text-xs text-gray-400 font-medium">- OR -</div>
@@ -457,7 +470,8 @@ export default function TemplatesListTab() {
                   value={targetParentFolderId}
                   onChange={(e) => setTargetParentFolderId(e.target.value)}
                   placeholder="e.g. f9e8d7c6-..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600"
+                  style={{ '--focus-border': primaryColor } as React.CSSProperties}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[var(--focus-border)]"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -470,7 +484,8 @@ export default function TemplatesListTab() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
+                  style={{ backgroundColor: primaryColor }}
+                  className="px-4 py-2 text-white rounded-lg text-sm font-medium hover:opacity-90"
                 >
                   Deploy Folders
                 </button>

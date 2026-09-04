@@ -1,12 +1,13 @@
 // C:\Users\allan.muyesu\Desktop\my-app\components\DocumentContentArea.tsx
 
 'use client';
-import { useState, useEffect, useRef, useMemo, ChangeEvent, DragEvent, MouseEvent } from 'react';
-import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Upload, CloudUpload, Eye, Download, X, Columns } from 'lucide-react';
+import { useState, useEffect, useMemo, MouseEvent, KeyboardEvent } from 'react';
+import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye } from 'lucide-react';
 import { fetchFolderContents, FolderItem } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
 import ContextMenu from './ContextMenu';
 import FolderTemplateModal from './FolderTemplateModal';
+import DocumentUploadZone from './DocumentUploadZone';
 import { usePermissions } from '@/hooks/usePermissions';
 
 interface DocumentContentAreaProps {
@@ -28,6 +29,7 @@ interface ContentItem {
   tenant?: string;
   size?: string;
   created_by?: string;
+  primary_color?: string;
   current_version?: {
     file?: string;
   };
@@ -49,20 +51,14 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'compact' | 'details'>('list');
 
-  // Upload states
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [uploading, setUploading] = useState<boolean>(false);
-
   // Preview states
   const [previewFile, setPreviewFile] = useState<ContentItem | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
-  // Hidden inputs for click-to-upload
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // Breadcrumb path tracking history stack
+  // Breadcrumb path tracking history stack & Type-a-path states
   const [breadcrumbPath, setBreadcrumbPath] = useState<FolderItem[]>([]);
+  const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
+  const [typedPathString, setTypedPathString] = useState<string>('');
 
   const itemId = selectedItem?.id;
   const itemType = selectedItem?.type || 'folder';
@@ -70,12 +66,35 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
 
   const [themeColor, setThemeColor] = useState<string>('#4C1D95');
 
+  // Database Color Code resolution (item-level, tenant settings, or fallback)
   useEffect(() => {
-    const itemColor = (selectedItem as any)?.primary_color;
-    const storedColor = typeof window !== 'undefined' ? localStorage.getItem('tenant_primary_color') : null;
-    setThemeColor(itemColor || storedColor || '#4C1D95');
+    let color = (selectedItem as any)?.primary_color;
+    
+    // Fallback to fetch tenant database color if not on selected item
+    if (!color) {
+      const storedColor = typeof window !== 'undefined' ? localStorage.getItem('tenant_primary_color') : null;
+      if (storedColor) {
+        color = storedColor;
+      } else {
+        apiCall('/v1/tenants/tenants/current/', { requiresAuth: true })
+          .then((data) => {
+            if (!data) return;
+            const tenantObj = Array.isArray(data) ? data[0] : data.results?.[0] || data;
+            if (tenantObj?.effective_primary_color) {
+              setThemeColor(tenantObj.effective_primary_color);
+              localStorage.setItem('tenant_primary_color', tenantObj.effective_primary_color);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    
+    if (color) {
+      setThemeColor(color);
+    }
   }, [selectedItem]);
 
+  // Sync breadcrumb path with selected item tree navigation
   useEffect(() => {
     if (!selectedItem || selectedItem.id === 'default-folder-id') {
       setBreadcrumbPath([]);
@@ -117,6 +136,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
           updated_at: f.updated_at ? String(f.updated_at) : (f.created_at ? String(f.created_at) : undefined),
           created_at: f.created_at ? String(f.created_at) : undefined,
           created_by: f.created_by ? String(f.created_by) : undefined,
+          primary_color: f.primary_color ? String(f.primary_color) : undefined,
         };
       });
 
@@ -149,12 +169,8 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     loadContents();
   }, [itemId, itemType]);
 
-  // Handle template success with a brief buffer to ensure database transaction completion
   const handleTemplateSuccess = async () => {
-    setLoading(true);
-    setTimeout(async () => {
-      await loadContents();
-    }, 400);
+    await loadContents();
   };
 
   const toggleMenu = (id: string, e: MouseEvent<HTMLElement>) => {
@@ -178,106 +194,29 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     setBreadcrumbPath([]);
   };
 
-  const handleFilesUpload = async (files: FileList | File[]) => {
-    if (!isFolderLevel) {
-      alert('Documents can only be uploaded directly inside folders.');
-      return;
-    }
-
-    if (!hasPermission('add_document') && !hasPermission('upload_document')) {
-      alert('You do not have permission to upload documents.');
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const fileArray = Array.from(files);
-      const folderCache = new Map<string, string>();
-      const activeTenantId = (selectedItem as any)?.tenant || (typeof window !== 'undefined' ? localStorage.getItem('current_tenant_id') : null);
-
-      for (const file of fileArray) {
-        const relativePath = (file as { webkitRelativePath?: string }).webkitRelativePath;
-
-        if (!relativePath) {
-          const formData = new FormData();
-          formData.append('name', file.name);
-          formData.append('folder', itemId!);
-          if (activeTenantId) {
-            formData.append('tenant', activeTenantId);
-          }
-          formData.append('file', file);
-          
-          await apiCall('/v1/documents/documents/', {
-            method: 'POST',
-            requiresAuth: true,
-            body: formData,
-          });
-        } else {
-          const pathSegments = relativePath.split('/');
-          pathSegments.pop();
-
-          let currentParentId = itemId!;
-          let accumulatedPath = '';
-
-          for (const segment of pathSegments) {
-            accumulatedPath = accumulatedPath ? `${accumulatedPath}/${segment}` : segment;
-
-            if (folderCache.has(accumulatedPath)) {
-              currentParentId = folderCache.get(accumulatedPath)!;
-            } else {
-              const folderPayload: Record<string, unknown> = {
-                name: segment,
-                parent: currentParentId,
-                cabinet: (selectedItem as any)?.cabinet || null
-              };
-              if (activeTenantId) {
-                folderPayload.tenant = activeTenantId;
-              }
-
-              const folderData = await apiCall('/v1/documents/folders/', {
-                method: 'POST',
-                requiresAuth: true,
-                body: JSON.stringify(folderPayload)
-              });
-              
-              currentParentId = folderData.id;
-              folderCache.set(accumulatedPath, currentParentId);
-            }
-          }
-
-          const formData = new FormData();
-          formData.append('name', file.name);
-          formData.append('folder', currentParentId);
-          if (activeTenantId) {
-            formData.append('tenant', activeTenantId);
-          }
-          formData.append('file', file);
-
-          await apiCall('/v1/documents/documents/', {
-            method: 'POST',
-            requiresAuth: true,
-            body: formData,
-          });
+  // Handle path typing submission
+  const handlePathInputSubmit = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const trimmed = typedPathString.trim();
+      if (!trimmed) {
+        setIsEditingPath(false);
+        return;
+      }
+      
+      const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean);
+      const matchedItem = breadcrumbPath.find(p => p.name.toLowerCase() === segments[segments.length - 1]?.toLowerCase());
+      
+      if (matchedItem && onSelectItem) {
+        onSelectItem(matchedItem);
+      } else {
+        const foundInCurrent = contents.find(c => c.name.toLowerCase() === segments[segments.length - 1]?.toLowerCase());
+        if (foundInCurrent && onSelectItem) {
+          onSelectItem(foundInCurrent as FolderItem);
         }
       }
-
-      await loadContents();
-    } catch (err: unknown) {
-      const errorObject = err as Error;
-      alert(errorObject.message || 'Upload failed.');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (folderInputRef.current) folderInputRef.current.value = '';
-    }
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (!isFolderLevel) return;
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFilesUpload(e.dataTransfer.files);
+      setIsEditingPath(false);
+    } else if (e.key === 'Escape') {
+      setIsEditingPath(false);
     }
   };
 
@@ -391,24 +330,9 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
         className="flex-1 bg-gray-50 flex flex-col overflow-y-auto select-none"
         onContextMenu={handleContextMenu}
       >
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          multiple 
-          className="hidden" 
-          onChange={(e: ChangeEvent<HTMLInputElement>) => e.target.files && handleFilesUpload(e.target.files)} 
-        />
-        <input 
-          type="file" 
-          ref={folderInputRef} 
-          {...({ webkitdirectory: '', directory: '' } as unknown as React.InputHTMLAttributes<HTMLInputElement>)}
-          className="hidden" 
-          onChange={(e: ChangeEvent<HTMLInputElement>) => e.target.files && handleFilesUpload(e.target.files)} 
-        />
-
-        {/* Interactive Breadcrumbs Header */}
+        {/* Interactive Breadcrumbs Header with Type-a-Path capability */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center text-xs text-gray-500 gap-2 flex-wrap">
+          <div className="flex items-center text-xs text-gray-500 gap-2 flex-wrap w-full">
             <span 
               onClick={handleResetHome} 
               className="hover:opacity-80 cursor-pointer font-medium"
@@ -418,26 +342,64 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
             </span> 
             {breadcrumbPath.length > 0 && <ChevronRight size={12} className="text-gray-400" />}
 
-            {breadcrumbPath.map((pathItem, index) => {
-              const isLast = index === breadcrumbPath.length - 1;
-              return (
-                <div key={pathItem.id} className="flex items-center gap-2">
-                  <span 
-                    onClick={() => !isLast && handleBreadcrumbClick(pathItem)}
-                    className={`cursor-pointer transition ${
-                      isLast 
-                        ? 'font-semibold cursor-default' 
-                        : 'hover:opacity-80 text-gray-600'
-                    }`}
-                    style={isLast ? { color: themeColor } : {}}
-                  >
-                    {pathItem.name}
-                  </span>
-                  {!isLast && <ChevronRight size={12} className="text-gray-400" />}
-                </div>
-              );
-            })}
-            <Edit3 size={14} className="text-gray-400 ml-2 cursor-pointer hover:text-gray-600" />
+            {!isEditingPath ? (
+              <div className="flex items-center gap-2 flex-wrap flex-1">
+                {breadcrumbPath.map((pathItem, index) => {
+                  const isLast = index === breadcrumbPath.length - 1;
+                  return (
+                    <div key={pathItem.id} className="flex items-center gap-2">
+                      <span 
+                        onClick={() => !isLast && handleBreadcrumbClick(pathItem)}
+                        className={`cursor-pointer transition ${
+                          isLast 
+                            ? 'font-semibold cursor-default' 
+                            : 'hover:opacity-80 text-gray-600'
+                        }`}
+                        style={isLast ? { color: themeColor } : {}}
+                      >
+                        {pathItem.name}
+                      </span>
+                      {!isLast && <ChevronRight size={12} className="text-gray-400" />}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 flex-1 max-w-lg">
+                <input 
+                  type="text"
+                  value={typedPathString}
+                  onChange={(e) => setTypedPathString(e.target.value)}
+                  onKeyDown={handlePathInputSubmit}
+                  placeholder="Type path (e.g. Company / Cabinet / Folder) and press Enter..."
+                  autoFocus
+                  className="flex-1 bg-gray-100 border border-gray-300 rounded px-2 py-1 text-xs outline-none text-gray-800"
+                  style={{ borderColor: themeColor }}
+                />
+                <button 
+                  onClick={() => {
+                    setIsEditingPath(false);
+                  }}
+                  className="p-1 rounded text-gray-500 hover:bg-gray-200"
+                  title="Cancel"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {!isEditingPath && (
+              <button 
+                onClick={() => {
+                  setTypedPathString(['Home', ...breadcrumbPath.map(p => p.name)].join(' / '));
+                  setIsEditingPath(true);
+                }}
+                title="Edit path directly"
+                className="ml-auto text-gray-400 hover:text-gray-600 p-1 rounded transition"
+              >
+                <Edit3 size={14} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -464,55 +426,14 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
           </div>
         </div>
 
-        {/* Drag & Drop / Click Upload Zone */}
-        {isFolderLevel && (hasPermission('add_document') || hasPermission('upload_document')) && (
-          <div 
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            className={`mx-6 mt-4 border-2 border-dashed rounded-xl p-5 text-center transition flex flex-col items-center justify-center bg-white ${
-              isDragging ? 'border-purple-600 bg-purple-50/50' : 'border-gray-300 hover:border-gray-400'
-            }`}
-            style={{ borderColor: isDragging ? themeColor : undefined }}
-          >
-            {uploading ? (
-              <div className="flex items-center gap-2 text-xs py-2" style={{ color: themeColor }}>
-                <Loader2 size={18} className="animate-spin" style={{ color: themeColor }} /> Uploading files/folders...
-              </div>
-            ) : (
-              <div className="flex flex-col items-center">
-                <div 
-                  className="w-10 h-10 rounded-full flex items-center justify-center mb-2 shadow-sm"
-                  style={{ backgroundColor: `${themeColor}15`, color: themeColor }}
-                >
-                  <CloudUpload size={20} />
-                </div>
-                <p className="text-xs font-semibold text-gray-700">
-                  Drag and drop your files or folders here, or use buttons below
-                </p>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Supports individual documents or complete directory hierarchies
-                </p>
-                <div className="flex items-center gap-3 mt-3">
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 text-white rounded-lg text-xs font-medium shadow-sm transition flex items-center gap-1.5"
-                    style={{ backgroundColor: themeColor }}
-                  >
-                    <Upload size={13} /> Upload Document(s)
-                  </button>
-                  <button 
-                    onClick={() => folderInputRef.current?.click()}
-                    className="px-3 py-1.5 bg-white border rounded-lg text-xs font-medium shadow-sm transition flex items-center gap-1.5"
-                    style={{ borderColor: themeColor, color: themeColor }}
-                  >
-                    <Folder size={13} /> Upload Folder
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Separated Document/Folder Upload Zone Component */}
+        <DocumentUploadZone 
+          isFolderLevel={isFolderLevel}
+          hasPermission={hasPermission}
+          themeColor={themeColor}
+          selectedItem={selectedItem}
+          onUploadComplete={loadContents}
+        />
 
         {/* Inner Filter & View controls */}
         <div className="mx-6 mt-4 flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-2.5">
@@ -538,7 +459,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
                 <option value="folder">Folders</option>
               </select>
             </div>
-            {/* Revver View Mode Toggle Buttons */}
+            {/* View Mode Toggle Buttons */}
             <div className="flex items-center gap-1 bg-gray-100 p-1 rounded">
               <button 
                 title="Grid View"

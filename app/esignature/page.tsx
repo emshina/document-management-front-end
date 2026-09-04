@@ -2,16 +2,18 @@
 
 import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
-
+import Header from '@/components/Header';
 import FormTemplateList from '../../components/esignature/FormTemplateList';
 import SignatureRequestsList from '../../components/esignature/SignatureRequestsList';
 
-import { Menu, FileText, PenTool, Plus } from 'lucide-react';
+import { FileText, PenTool, Plus } from 'lucide-react';
+import { useTenant } from '@/hooks/useTenant';
 
 export default function ESignatureDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'templates' | 'requests'>('templates');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const { primaryColor } = useTenant();
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -24,39 +26,36 @@ export default function ESignatureDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Navbar Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSidebarOpen(true)} 
-              className="md:hidden text-gray-600 hover:text-gray-900"
-            >
-              <Menu size={24} />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">eSignature & Form Builder</h1>
-              <p className="text-xs text-gray-500">Manage reusable templates, field mapping, and execution logs.</p>
-            </div>
+        {/* Reused Header Component */}
+        <Header onToggleSidebar={() => setSidebarOpen(true)} />
+
+        {/* Page Header Bar */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-xs shrink-0">
+          <div>
+            <h1 className="text-xl font-bold text-gray-800">eSignature & Form Builder</h1>
+            <p className="text-xs text-gray-500">Manage reusable templates, field mapping, and execution logs.</p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsBuilderOpen(true)}
-              className="flex items-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
+              style={{ backgroundColor: primaryColor }}
+              className="flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition shadow-sm"
             >
               <Plus size={16} />
               Create Template
             </button>
           </div>
-        </header>
+        </div>
 
         {/* Navigation Tabs Bar */}
-        <div className="bg-white border-b border-gray-200 px-6 flex gap-8">
+        <div className="bg-white border-b border-gray-200 px-6 flex gap-8 shrink-0">
           <button
             onClick={() => setActiveTab('templates')}
+            style={activeTab === 'templates' ? { borderColor: primaryColor, color: primaryColor } : undefined}
             className={`py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
               activeTab === 'templates'
-                ? 'border-[#7C3AED] text-[#7C3AED]'
+                ? ''
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -65,9 +64,10 @@ export default function ESignatureDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('requests')}
+            style={activeTab === 'requests' ? { borderColor: primaryColor, color: primaryColor } : undefined}
             className={`py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
               activeTab === 'requests'
-                ? 'border-[#7C3AED] text-[#7C3AED]'
+                ? ''
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >

@@ -230,3 +230,58 @@ export async function deleteFolderItem(id: string, type: TreeNodeItem['type'] = 
     requiresAuth: true,
   });
 }
+
+
+// 7. Update, rename, or patch a folder, cabinet, or tenant item based on type
+export async function updateFolderItem(id: string, name: string, type: TreeNodeItem['type'] = 'folder') {
+  let endpoint = `/api/v1/documents/folders/${id}/`;
+  let body: any = { name: name.trim() };
+
+  if (type === 'sub_company' || type === 'mother_company') {
+    endpoint = `/api/v1/tenants/tenants/${id}/`;
+  } else if (type === 'cabinet') {
+    endpoint = `/api/v1/documents/cabinets/${id}/`;
+  }
+
+  return apiCall(endpoint, {
+    method: 'PATCH',
+    requiresAuth: true,
+    body: JSON.stringify(body),
+  });
+}
+
+// 8. Move a folder to a new parent folder, cabinet, or tenant
+export async function moveFolderItem(
+  id: string,
+  targetDestination: { parent?: string | null; cabinet?: string | null; tenant?: string | null },
+  type: TreeNodeItem['type'] = 'folder'
+) {
+  if (type === 'cabinet') {
+    // Moving a cabinet to a new sub_company (tenant)
+    return apiCall(`/api/v1/documents/cabinets/${id}/`, {
+      method: 'PATCH',
+      requiresAuth: true,
+      body: JSON.stringify({ tenant: targetDestination.tenant }),
+    });
+  }
+
+  if (type === 'sub_company' || type === 'mother_company') {
+    // Moving a sub-company under a new mother company
+    return apiCall(`/api/v1/tenants/tenants/${id}/`, {
+      method: 'PATCH',
+      requiresAuth: true,
+      body: JSON.stringify({ parent_id: targetDestination.tenant }),
+    });
+  }
+
+  // Default: Moving a regular folder using your custom viewset move endpoint
+  return apiCall(`/api/v1/documents/folders/${id}/move/`, {
+    method: 'POST',
+    requiresAuth: true,
+    body: JSON.stringify({
+      parent: targetDestination.parent ?? null,
+      cabinet: targetDestination.cabinet ?? null,
+      tenant: targetDestination.tenant ?? null,
+    }),
+  });
+}
