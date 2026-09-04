@@ -1,9 +1,9 @@
 // C:\Users\allan.muyesu\Desktop\my-app\components\DocumentContentArea.tsx
 
 'use client';
-import { useState, useEffect, useMemo, MouseEvent, KeyboardEvent } from 'react';
-import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye } from 'lucide-react';
-import { fetchFolderContents, FolderItem } from '@/services/folderService';
+import { useState, useEffect, useMemo, useRef, MouseEvent, KeyboardEvent } from 'react';
+import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye, Check } from 'lucide-react';
+import { fetchFolderContents, FolderItem, createSubCompany, createCabinet, createFolderItem } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
 import ContextMenu from './ContextMenu';
 import FolderTemplateModal from './FolderTemplateModal';
@@ -59,6 +59,12 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const [breadcrumbPath, setBreadcrumbPath] = useState<FolderItem[]>([]);
   const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
   const [typedPathString, setTypedPathString] = useState<string>('');
+
+  // ---- Inline create (no popup) ----
+  const [isCreating, setIsCreating] = useState<boolean>(false);
+  const [newItemName, setNewItemName] = useState<string>('');
+  const [savingNew, setSavingNew] = useState<boolean>(false);
+  const newItemInputRef = useRef<HTMLInputElement>(null);
 
   const itemId = selectedItem?.id;
   const itemType = selectedItem?.type || 'folder';
@@ -309,6 +315,68 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
   };
 
+  // Label of the child that will be created inside the ACTIVE node
+  const childKindLabel =
+    itemType === 'mother_company' ? 'Sub Company'
+    : itemType === 'sub_company' ? 'Cabinet'
+    : 'Folder';
+
+  const startInlineCreate = () => {
+    if (!itemId || itemId === 'default-folder-id') {
+      alert('Select a folder or cabinet first.');
+      return;
+    }
+    setContextMenuPos(null);
+    setNewItemName(`New ${childKindLabel}`);
+    setIsCreating(true);
+    // focus + select the text so the user can just type
+    setTimeout(() => {
+      newItemInputRef.current?.focus();
+      newItemInputRef.current?.select();
+    }, 30);
+  };
+
+  const cancelInlineCreate = () => {
+    setIsCreating(false);
+    setNewItemName('');
+  };
+
+  const submitInlineCreate = async () => {
+    const name = newItemName.trim();
+    if (!name || savingNew || !itemId) return;
+
+    try {
+      setSavingNew(true);
+
+      if (itemType === 'mother_company') {
+        await createSubCompany(name, itemId);
+      } else if (itemType === 'sub_company') {
+        await createCabinet(name, itemId);
+      } else {
+        // inside a cabinet -> root folder; inside a folder -> sub folder
+        await createFolderItem(name, itemId, itemType === 'cabinet' ? 'cabinet' : 'folder');
+      }
+
+      cancelInlineCreate();
+      await loadContents();
+    } catch (err: unknown) {
+      const errorObject = err as Error;
+      alert(errorObject.message || 'Failed to create item.');
+    } finally {
+      setSavingNew(false);
+    }
+  };
+
+  const handleNewItemKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitInlineCreate();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelInlineCreate();
+    }
+  };
+
   const filteredContents = useMemo(() => {
     return contents.filter((item) => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -499,7 +567,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
             <p className="text-xs text-red-500 bg-red-50 p-4 rounded text-center">{error}</p>
           )}
 
-          {!loading && !error && filteredContents.length === 0 && (
+          {!loading && !error && filteredContents.length === 0 && !isCreating && (
             <p className="text-xs text-gray-400 text-center py-8">No matching contents found.</p>
           )}
 
@@ -516,6 +584,40 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
+                {isCreating && (
+                  <tr style={{ backgroundColor: `${themeColor}10` }}>
+                    <td className="py-2 px-4">
+                      <div className="flex items-center gap-2.5">
+                        <Folder size={16} className="text-gray-400 shrink-0" />
+                        <input
+                          ref={newItemInputRef}
+                          value={newItemName}
+                          disabled={savingNew}
+                          onChange={(e) => setNewItemName(e.target.value)}
+                          onKeyDown={handleNewItemKeyDown}
+                          className="text-xs font-semibold text-gray-800 border rounded px-2 py-1 outline-none w-64"
+                          style={{ borderColor: themeColor }}
+                        />
+                        <button onClick={cancelInlineCreate} className="text-gray-400 hover:text-gray-600" title="Cancel">
+                          <X size={14} />
+                        </button>
+                        <button
+                          onClick={submitInlineCreate}
+                          disabled={savingNew || !newItemName.trim()}
+                          className="text-xs font-semibold disabled:opacity-40 flex items-center gap-1"
+                          style={{ color: themeColor }}
+                        >
+                          {savingNew ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
+                        </button>
+                      </div>
+                    </td>
+                    <td className="py-2 px-4 text-gray-500">{childKindLabel}</td>
+                    <td className="py-2 px-4 text-gray-400">—</td>
+                    <td className="py-2 px-4 text-gray-400">—</td>
+                    <td className="py-2 px-4 text-gray-400">—</td>
+                    <td className="py-2 px-4 text-gray-400">—</td>
+                  </tr>
+                )}
                 {filteredContents.map((item) => {
                   const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
                   const isFile = resolvedType === 'file' || item.file_type || item.reference_no;
@@ -549,6 +651,31 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
             </table>
           ) : (
             <div className="divide-y divide-gray-100">
+              {isCreating && (
+                <div className="flex items-center gap-3 px-4 py-3" style={{ backgroundColor: `${themeColor}10` }}>
+                  <Folder size={18} className="text-gray-400" />
+                  <input
+                    ref={newItemInputRef}
+                    value={newItemName}
+                    disabled={savingNew}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    onKeyDown={handleNewItemKeyDown}
+                    className="text-xs font-semibold text-gray-800 border rounded px-2 py-1 outline-none w-64"
+                    style={{ borderColor: themeColor }}
+                  />
+                  <button
+                    onClick={submitInlineCreate}
+                    disabled={savingNew || !newItemName.trim()}
+                    className="text-xs font-semibold disabled:opacity-40 flex items-center gap-1"
+                    style={{ color: themeColor }}
+                  >
+                    {savingNew ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
+                  </button>
+                  <button onClick={cancelInlineCreate} className="text-gray-400 hover:text-gray-600" title="Cancel">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               {!loading && !error && filteredContents.map((item) => {
                 const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
                 const isMotherCompany = resolvedType === 'mother_company';
@@ -627,6 +754,8 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
           onClose={() => setContextMenuPos(null)}
           onOpenTemplateModal={() => setIsTemplateModalOpen(true)}
           canUpload={hasPermission('add_document') || hasPermission('upload_document')}
+          onStartInlineCreate={startInlineCreate}
+          childKindLabel={childKindLabel}
         />
       )}
 
