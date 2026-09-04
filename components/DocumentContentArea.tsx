@@ -39,7 +39,9 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const { hasPermission } = usePermissions();
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; item?: ContentItem | null } | null>(null);
+
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState<boolean>(false);
 
   const [contents, setContents] = useState<ContentItem[]>([]);
@@ -184,12 +186,13 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     setActiveMenuId(activeMenuId === id ? null : id);
   };
 
-  const handleContextMenu = (e: MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (!itemId || itemId === 'default-folder-id') return;
-    setContextMenuPos({ x: e.clientX, y: e.clientY });
-  };
 
+const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!itemId || itemId === 'default-folder-id') return;
+  setContextMenuPos({ x: e.clientX, y: e.clientY, item: item || null });
+};
   const handleBreadcrumbClick = (item: FolderItem) => {
     if (onSelectItem) {
       onSelectItem(item);
@@ -746,7 +749,6 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
         </div>
       </main>
 
-      {/* Right Click Context Menu */}
       {contextMenuPos && itemId && (
         <ContextMenu 
           x={contextMenuPos.x} 
@@ -756,8 +758,12 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
           canUpload={hasPermission('add_document') || hasPermission('upload_document')}
           onStartInlineCreate={startInlineCreate}
           childKindLabel={childKindLabel}
+          selectedItem={contextMenuPos.item ?? selectedItem}
+          onUploadComplete={loadContents}
         />
       )}
+
+
 
       {/* Folder Template Application Modal with immediate refresh callback */}
       {itemId && (

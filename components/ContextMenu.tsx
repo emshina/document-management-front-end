@@ -131,30 +131,32 @@ export default function ContextMenu({
 
   // Handler for renaming a folder
   const handleRenameFolder = async () => {
-    if (!selectedItem || !selectedItem.id) {
-      alert("No folder selected for renaming.");
-      return;
+  const target = selectedItem;
+  if (!target || !target.id) {
+    alert("No item selected for renaming.");
+    return;
+  }
+
+  const newName = prompt("Enter new name:", target.name || "");
+  if (!newName || newName === target.name) return;
+
+  try {
+    // If it's a folder/sub-company/cabinet, use the folders endpoint
+    await apiCall(`/v1/documents/folders/${target.id}/`, {
+      method: "PATCH",
+      requiresAuth: true,
+      body: JSON.stringify({ name: newName }),
+    });
+
+    if (onUploadComplete) {
+      await onUploadComplete();
     }
-
-    const newName = prompt("Enter new folder name:", selectedItem.name || "");
-    if (!newName || newName === selectedItem.name) return;
-
-    try {
-      await apiCall(`/v1/documents/folders/${selectedItem.id}/`, {
-        method: "PATCH",
-        requiresAuth: true,
-        body: JSON.stringify({ name: newName }),
-      });
-
-      if (onUploadComplete) {
-        await onUploadComplete();
-      }
-      onClose();
-    } catch (err: unknown) {
-      const errorObject = err as Error;
-      alert(errorObject.message || "Failed to rename folder.");
-    }
-  };
+    onClose();
+  } catch (err: unknown) {
+    const errorObject = err as Error;
+    alert(errorObject.message || "Failed to rename item.");
+  }
+};
 
   // Handler for deleting a folder
   const handleDeleteFolder = async () => {
