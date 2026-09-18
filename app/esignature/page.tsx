@@ -3,17 +3,33 @@
 import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
-import FormTemplateList from '../../components/esignature/FormTemplateList';
-import SignatureRequestsList from '../../components/esignature/SignatureRequestsList';
+import FormTemplateList from '@/components/esignature/FormTemplateList';
+import SignatureRequestsList from '@/components/esignature/SignatureRequestsList';
+import DocumentSignSetupWizard from '@/components/esignature/DocumentSignSetupWizard';
+import EnvelopeDetailView from '@/components/esignature/EnvelopeDetailView';
+import EnvelopeEditView from '@/components/esignature/EnvelopeEditView'; // <-- Added Edit View
 
-import { FileText, PenTool, Plus } from 'lucide-react';
+import { FileText, PenTool, Plus, ArrowLeft } from 'lucide-react';
 import { useTenant } from '@/hooks/useTenant';
 
 export default function ESignatureDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'templates' | 'requests'>('templates');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  
+  // Controls navigation states inside requests tab
+  const [showWizard, setShowWizard] = useState(false);
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(null);
+  const [editingEnvelopeId, setEditingEnvelopeId] = useState<string | null>(null); // <-- Added Edit State
+  
   const { primaryColor } = useTenant();
+
+  // Helper to reset states back to the standard lists
+  const handleBackToRequests = () => {
+    setShowWizard(false);
+    setSelectedEnvelopeId(null);
+    setEditingEnvelopeId(null); // <-- Reset edit state too
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -37,21 +53,42 @@ export default function ESignatureDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsBuilderOpen(true)}
-              style={{ backgroundColor: primaryColor }}
-              className="flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition shadow-sm"
-            >
-              <Plus size={16} />
-              Create Template
-            </button>
+            {activeTab === 'requests' && (showWizard || selectedEnvelopeId || editingEnvelopeId) ? (
+              <button
+                onClick={handleBackToRequests}
+                className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition shadow-sm"
+              >
+                <ArrowLeft size={16} />
+                Back to Requests
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  if (activeTab === 'templates') {
+                    setIsBuilderOpen(true);
+                  } else {
+                    setShowWizard(true);
+                    setSelectedEnvelopeId(null);
+                    setEditingEnvelopeId(null);
+                  }
+                }}
+                style={{ backgroundColor: primaryColor }}
+                className="flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition shadow-sm"
+              >
+                <Plus size={16} />
+                {activeTab === 'templates' ? 'Create Template' : 'New Signature Request'}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Navigation Tabs Bar */}
         <div className="bg-white border-b border-gray-200 px-6 flex gap-8 shrink-0">
           <button
-            onClick={() => setActiveTab('templates')}
+            onClick={() => {
+              setActiveTab('templates');
+              handleBackToRequests();
+            }}
             style={activeTab === 'templates' ? { borderColor: primaryColor, color: primaryColor } : undefined}
             className={`py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
               activeTab === 'templates'
@@ -63,7 +100,10 @@ export default function ESignatureDashboard() {
             Form Templates & Layouts
           </button>
           <button
-            onClick={() => setActiveTab('requests')}
+            onClick={() => {
+              setActiveTab('requests');
+              handleBackToRequests();
+            }}
             style={activeTab === 'requests' ? { borderColor: primaryColor, color: primaryColor } : undefined}
             className={`py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
               activeTab === 'requests'
@@ -76,7 +116,7 @@ export default function ESignatureDashboard() {
           </button>
         </div>
 
-        {/* Dashboard Dynamic Body */}
+        {/* Dashboard Dynamic Body (Swaps in place) */}
         <main className="flex-1 overflow-y-auto p-6 bg-gray-100">
           {activeTab === 'templates' ? (
             <FormTemplateList 
@@ -85,7 +125,32 @@ export default function ESignatureDashboard() {
               onCloseBuilder={() => setIsBuilderOpen(false)} 
             />
           ) : (
-            <SignatureRequestsList />
+            // Toggle between requests list, setup wizard, detail view, or edit view in-place
+            showWizard ? (
+              <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
+                <DocumentSignSetupWizard 
+                  onComplete={() => {
+                    setShowWizard(false); 
+                  }} 
+                />
+              </div>
+            ) : editingEnvelopeId ? (
+              <EnvelopeEditView 
+                envelopeId={editingEnvelopeId} 
+                onBack={() => setEditingEnvelopeId(null)} 
+              />
+            ) : selectedEnvelopeId ? (
+              <EnvelopeDetailView 
+                envelopeId={selectedEnvelopeId} 
+                onBack={() => setSelectedEnvelopeId(null)} 
+              />
+            ) : (
+              <SignatureRequestsList 
+                onOpenWizard={() => setShowWizard(true)} 
+                onViewDetails={(id) => setSelectedEnvelopeId(id)}
+                onEdit={(id) => setEditingEnvelopeId(id)} // <-- Passed onEdit correctly
+              />
+            )
           )}
         </main>
       </div>

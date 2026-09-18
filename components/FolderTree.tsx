@@ -1,4 +1,3 @@
-// C:\Users\allan.muyesu\Desktop\my-app\components\FolderTree.tsx
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
@@ -29,11 +28,12 @@ export interface SelectedNode {
 }
 
 interface FolderTreeProps {
+  selectedItem?: TreeNodeItem | any | null; // <-- Added to sync external selection state
   onSelectFolder?: (item: TreeNodeItem | any, meta?: SelectedNode) => void;
   onTriggerUpload?: (parentId: string, parentType: string, uploadType: 'file' | 'folder') => void;
 }
 
-export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTreeProps) {
+export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUpload }: FolderTreeProps) {
   const [folderTree, setFolderTree] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +56,38 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
   const [activeCreatingParentId, setActiveCreatingParentId] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync selectedId when selectedItem changes from DocumentContentArea or Breadcrumbs
+  useEffect(() => {
+    if (selectedItem?.id) {
+      setSelectedId(selectedItem.id);
+    }
+  }, [selectedItem]);
+
+  // Expand parent folders automatically when an item is selected externally
+  useEffect(() => {
+    if (!selectedItem?.id || folderTree.length === 0) return;
+
+    const findAncestors = (nodes: any[], targetId: string, currentPath: string[] = []): string[] | null => {
+      for (const node of nodes) {
+        if (node.id === targetId) return currentPath;
+        if (node.children && node.children.length > 0) {
+          const res = findAncestors(node.children, targetId, [...currentPath, node.id]);
+          if (res) return res;
+        }
+      }
+      return null;
+    };
+
+    const ancestorIds = findAncestors(folderTree, selectedItem.id);
+    if (ancestorIds && ancestorIds.length > 0) {
+      setExpanded((prev) => {
+        const next = { ...prev };
+        ancestorIds.forEach((id) => { next[id] = true; });
+        return next;
+      });
+    }
+  }, [selectedItem, folderTree]);
 
   // Hydration-safe restore of persisted width / collapsed flag
   useEffect(() => {
@@ -86,14 +118,14 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
       .catch((err) => console.error('Error loading tree brand color:', err));
   }, []);
 
-  // ---------- Mouse drag resize (bidirectional, clamped to container origin) ----------
+  // ---------- Mouse drag resize ----------
   useEffect(() => {
     if (!isResizing) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       const left = containerRef.current?.getBoundingClientRect().left ?? 0;
       const raw = e.clientX - left;
-      if (raw < MIN_WIDTH / 2) {          // drag hard left => collapse
+      if (raw < MIN_WIDTH / 2) {
         setCollapsed(true);
         return;
       }
@@ -132,17 +164,15 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     });
   };
 
-  // Double-click the handle => snap between collapsed and default
   const handleDoubleClick = () => toggleCollapsed();
 
-  // Keyboard resize for accessibility
   const handleHandleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') setTreeWidth((w) => Math.max(MIN_WIDTH, w - 16));
     if (e.key === 'ArrowRight') { setCollapsed(false); setTreeWidth((w) => Math.min(MAX_WIDTH, w + 16)); }
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }
   };
 
-  // ---------- Outside click for menus ----------
+  // Outside click for menus
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpenId(null);
@@ -151,13 +181,13 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ---------- Data ----------
+  // Data Loading
   const loadFolders = async () => {
     try {
       const data = await fetchFolderTree();
       setFolderTree(data as any[]);
-      if (data.length > 0 && Object.keys(expanded).length === 0) {
-        setExpanded({ [data[0].id]: true });
+      if (data.length > 0 && !selectedItem) {
+        setExpanded((prev) => ({ ...prev, [data[0].id]: true }));
         handleSelect(data[0], []);
       }
     } catch (err: any) {
@@ -172,7 +202,7 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     loadFolders();
   }, []);
 
-  // ---------- Path helpers ----------
+  // Path helpers
   const buildMeta = useCallback((item: any, ancestors: any[]): SelectedNode => {
     const chain = [...ancestors, item];
     const pathSegments = chain.map((n) => n.name);
@@ -245,7 +275,7 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
 
   const displayedTree = useMemo(() => filterTreeItems(folderTree, filterText), [folderTree, filterText]);
 
-  // ---------- Tree rendering (ancestors carried down for full path) ----------
+  // Tree rendering
   const renderTree = (items: TreeNodeItem[], level = 0, ancestors: any[] = []) => {
     return items.map((item: any) => {
       const isExpanded = expanded[item.id] || Boolean(filterText);
@@ -286,7 +316,9 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
               {isCabinet && <Box size={14} className="text-amber-600 flex-shrink-0" />}
               {isFolder && <Folder size={14} className="text-amber-500 flex-shrink-0" />}
 
-              <span className="text-[12px] truncate">{item.name}</span>
+              <span className={`text-[12px] truncate ${isSelected ? 'font-semibold' : ''}`} style={{ color: isSelected ? primaryColor : undefined }}>
+                {item.name}
+              </span>
             </div>
 
             {/* Actions menu */}
@@ -431,7 +463,6 @@ export default function FolderTree({ onSelectFolder, onTriggerUpload }: FolderTr
     });
   };
 
-  // ---------- Layout ----------
   return (
     <div
       ref={containerRef}

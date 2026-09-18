@@ -11,7 +11,7 @@ import DocumentUploadZone from './DocumentUploadZone';
 import { usePermissions } from '@/hooks/usePermissions';
 
 interface DocumentContentAreaProps {
-  selectedItem?: FolderItem | null;
+  selectedItem?: (FolderItem & { pathSegments?: string[]; idPath?: string[] }) | null;
   onSelectItem?: (item: FolderItem) => void;
 }
 
@@ -39,7 +39,6 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const { hasPermission } = usePermissions();
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  // const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; item?: ContentItem | null } | null>(null);
 
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState<boolean>(false);
@@ -62,7 +61,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
   const [typedPathString, setTypedPathString] = useState<string>('');
 
-  // ---- Inline create (no popup) ----
+  // Inline create
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [newItemName, setNewItemName] = useState<string>('');
   const [savingNew, setSavingNew] = useState<boolean>(false);
@@ -74,11 +73,10 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
 
   const [themeColor, setThemeColor] = useState<string>('#4C1D95');
 
-  // Database Color Code resolution (item-level, tenant settings, or fallback)
+  // Database Color Code resolution
   useEffect(() => {
     let color = (selectedItem as any)?.primary_color;
     
-    // Fallback to fetch tenant database color if not on selected item
     if (!color) {
       const storedColor = typeof window !== 'undefined' ? localStorage.getItem('tenant_primary_color') : null;
       if (storedColor) {
@@ -102,7 +100,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
   }, [selectedItem]);
 
-  // Sync breadcrumb path with selected item tree navigation
+  // FIX: Properly handle path hierarchy & tree traversal without blindly appending
   useEffect(() => {
     if (!selectedItem || selectedItem.id === 'default-folder-id') {
       setBreadcrumbPath([]);
@@ -110,11 +108,31 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
 
     setBreadcrumbPath((prevPath) => {
+      // 1. If item already exists in current path, truncate down to it
       const existingIndex = prevPath.findIndex((p) => p.id === selectedItem.id);
       if (existingIndex !== -1) {
         return prevPath.slice(0, existingIndex + 1);
       }
-      return [...prevPath, selectedItem];
+
+      // 2. If item contains path segments from tree selection, reconstruct path
+      if ((selectedItem as any).pathSegments && (selectedItem as any).idPath) {
+        const segments: string[] = (selectedItem as any).pathSegments;
+        const ids: string[] = (selectedItem as any).idPath;
+        return segments.map((seg, i) => ({
+          id: ids[i] || selectedItem.id,
+          name: seg,
+          type: i === segments.length - 1 ? selectedItem.type : 'folder',
+        }));
+      }
+
+      // 3. Direct drill-down: check if current selectedItem is inside the current list view
+      const isDirectChild = contents.some((c) => c.id === selectedItem.id);
+      if (isDirectChild) {
+        return [...prevPath, selectedItem];
+      }
+
+      // 4. Fallback for jump navigation: reset path to the selected item
+      return [selectedItem];
     });
   }, [selectedItem]);
 
@@ -186,13 +204,13 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     setActiveMenuId(activeMenuId === id ? null : id);
   };
 
+  const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!itemId || itemId === 'default-folder-id') return;
+    setContextMenuPos({ x: e.clientX, y: e.clientY, item: item || null });
+  };
 
-const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!itemId || itemId === 'default-folder-id') return;
-  setContextMenuPos({ x: e.clientX, y: e.clientY, item: item || null });
-};
   const handleBreadcrumbClick = (item: FolderItem) => {
     if (onSelectItem) {
       onSelectItem(item);
@@ -203,7 +221,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
     setBreadcrumbPath([]);
   };
 
-  // Handle path typing submission
   const handlePathInputSubmit = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const trimmed = typedPathString.trim();
@@ -318,7 +335,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
     }
   };
 
-  // Label of the child that will be created inside the ACTIVE node
   const childKindLabel =
     itemType === 'mother_company' ? 'Sub Company'
     : itemType === 'sub_company' ? 'Cabinet'
@@ -332,7 +348,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
     setContextMenuPos(null);
     setNewItemName(`New ${childKindLabel}`);
     setIsCreating(true);
-    // focus + select the text so the user can just type
     setTimeout(() => {
       newItemInputRef.current?.focus();
       newItemInputRef.current?.select();
@@ -356,7 +371,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
       } else if (itemType === 'sub_company') {
         await createCabinet(name, itemId);
       } else {
-        // inside a cabinet -> root folder; inside a folder -> sub folder
         await createFolderItem(name, itemId, itemType === 'cabinet' ? 'cabinet' : 'folder');
       }
 
@@ -401,7 +415,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
         className="flex-1 bg-gray-50 flex flex-col overflow-y-auto select-none"
         onContextMenu={handleContextMenu}
       >
-        {/* Interactive Breadcrumbs Header with Type-a-Path capability */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center text-xs text-gray-500 gap-2 flex-wrap w-full">
             <span 
@@ -448,9 +461,7 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
                   style={{ borderColor: themeColor }}
                 />
                 <button 
-                  onClick={() => {
-                    setIsEditingPath(false);
-                  }}
+                  onClick={() => setIsEditingPath(false)}
                   className="p-1 rounded text-gray-500 hover:bg-gray-200"
                   title="Cancel"
                 >
@@ -474,7 +485,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
           </div>
         </div>
 
-        {/* Active Selection Banner Header */}
         <div 
           className="mx-6 mt-6 border rounded-lg p-4 flex items-center justify-between relative"
           style={{ backgroundColor: `${themeColor}08`, borderColor: `${themeColor}30` }}
@@ -497,7 +507,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
           </div>
         </div>
 
-        {/* Separated Document/Folder Upload Zone Component */}
         <DocumentUploadZone 
           isFolderLevel={isFolderLevel}
           hasPermission={hasPermission}
@@ -506,7 +515,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
           onUploadComplete={loadContents}
         />
 
-        {/* Inner Filter & View controls */}
         <div className="mx-6 mt-4 flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-2.5">
           <div className="flex items-center gap-3 w-72">
             <SlidersHorizontal size={14} className="text-gray-400" />
@@ -530,7 +538,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
                 <option value="folder">Folders</option>
               </select>
             </div>
-            {/* View Mode Toggle Buttons */}
             <div className="flex items-center gap-1 bg-gray-100 p-1 rounded">
               <button 
                 title="Grid View"
@@ -558,7 +565,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
           </div>
         </div>
 
-        {/* Content list / grid items area */}
         <div className="mx-6 mt-3 mb-6 bg-white border border-gray-200 rounded-lg shadow-sm">
           {loading && (
             <div className="flex items-center justify-center py-10 text-gray-400 gap-2 text-xs">
@@ -763,9 +769,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
         />
       )}
 
-
-
-      {/* Folder Template Application Modal with immediate refresh callback */}
       {itemId && (
         <FolderTemplateModal 
           isOpen={isTemplateModalOpen}
@@ -777,7 +780,6 @@ const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) =>
         />
       )}
 
-      {/* Document Preview Sidebar / Modal */}
       {previewFile && (
         <aside className="w-[480px] bg-white border-l border-gray-200 flex flex-col shadow-xl z-20">
           <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">

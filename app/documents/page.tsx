@@ -1,3 +1,4 @@
+// app/documents/page.tsx
 'use client';
 import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
@@ -5,54 +6,63 @@ import Header from '@/components/Header';
 import FolderTree from '@/components/FolderTree';
 import DocumentContentArea from '@/components/DocumentContentArea';
 import AllFeaturesModal from '@/components/AllFeaturesModal';
-import { TreeNodeItem } from '@/services/folderService';
 
 export default function DocumentsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAllFeaturesOpen, setIsAllFeaturesOpen] = useState(false);
   
-  // 1. Manage the single source of truth for the currently selected node
-  const [selectedItem, setSelectedItem] = useState<TreeNodeItem | null>(null);
-
-  // 2. Add a refresh trigger counter to force FolderTree to re-fetch on command
+  // Single source of truth for the active selected item
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleTriggerRefresh = () => {
     setRefreshKey((prev) => prev + 1);
   };
 
+  const handleSelect = (item: any, meta?: any) => {
+    if (!item) return;
+
+    // Normalize type and id regardless of property naming variation
+    const resolvedType = item.type || item.nodeType || item.itemType || 'folder';
+    const resolvedId = item.id || item._id || item.value;
+
+    setSelectedItem({
+      ...item,
+      id: resolvedId,
+      type: resolvedType,
+      pathSegments: meta?.pathSegments || item.pathSegments,
+      idPath: meta?.idPath || item.idPath,
+    });
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      {/* Sidebar Navigation */}
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
         onOpenAllFeatures={() => setIsAllFeaturesOpen(true)} 
       />
 
-      {/* Main App Canvas */}
       <div className="flex-1 flex flex-col min-w-0">
         <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
         <div className="flex flex-1 overflow-hidden relative">
           
-          {/* 3. Pass refreshKey so FolderTree reloads instantly when mutated */}
           <div className="hidden md:flex">
             <FolderTree 
               key={refreshKey}
-              onSelectFolder={(item) => setSelectedItem(item)} 
+              selectedItem={selectedItem}
+              onSelectFolder={(item, meta) => handleSelect(item, meta)} 
             />
           </div>
 
-          {/* 4. Pass selectedItem, selection handler, and the refresh callback to DocumentContentArea */}
           <DocumentContentArea 
             selectedItem={selectedItem} 
-            onSelectItem={(item) => setSelectedItem(item)} 
+            onSelectItem={(item) => handleSelect(item)} 
             onRefreshTree={handleTriggerRefresh}
           />
         </div>
       </div>
 
-      {/* Pop-up modal drawer */}
       <AllFeaturesModal isOpen={isAllFeaturesOpen} onClose={() => setIsAllFeaturesOpen(false)} />
     </div>
   );
