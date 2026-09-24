@@ -5,7 +5,7 @@ export interface FolderItem {
   name: string;
   type: 'folder' | 'cabinet' | 'sub_company' | 'mother_company';
   path?: string;
-  folder_type?: string;
+  folder_type?: 'generic' | 'department' | 'employee' | 'client';
   is_locked?: boolean;
   children?: FolderItem[];
 }
@@ -32,6 +32,27 @@ export interface MotherCompanyItem {
 }
 
 export type TreeNodeItem = MotherCompanyItem | SubCompanyItem | CabinetItem | FolderItem;
+
+export interface EmployeePopupData {
+  staff_no: string;
+  first_name: string;
+  middle_name?: string | null;
+  last_name: string;
+  national_id: string;
+  kra_pin?: string | null;
+  email: string;
+  phone: string;
+  contract_type: string;
+  date_joined: string; // YYYY-MM-DD
+  location?: string | null;
+  bank_name?: string | null;
+  bank_account?: string | null;
+  nssf_no?: string | null;
+  nhif_no?: string | null;
+  salary?: number | null;
+  department?: string | null; // ID of Department
+  position?: string | null;   // ID of Position
+}
 
 // Helper to handle DRF paginated responses and clean absolute URLs safely
 async function fetchAllPaginated(endpoint: string) {
@@ -187,8 +208,15 @@ export async function createCabinet(name: string, tenantId: string) {
   });
 }
 
-// 5. Create a Folder inside a Cabinet or parent folder
-export async function createFolderItem(name: string, targetId: string, targetType: 'cabinet' | 'folder' = 'cabinet') {
+// 5. Create a Folder inside a Cabinet or parent folder with specific folder types, lock options, & optional employee details
+export async function createFolderItem(
+  name: string, 
+  targetId: string, 
+  targetType: 'cabinet' | 'folder' = 'cabinet',
+  folderType: 'generic' | 'department' | 'employee' | 'client' = 'generic',
+  isLocked: boolean = false,
+  employeeData?: EmployeePopupData
+) {
   let cabinetId = targetId;
   let parentId: string | null = null;
 
@@ -202,16 +230,22 @@ export async function createFolderItem(name: string, targetId: string, targetTyp
     }
   }
 
+  const payload: any = {
+    name: name.trim(),
+    cabinet: cabinetId,
+    parent: parentId,
+    folder_type: folderType,
+    is_locked: isLocked,
+  };
+
+  if (folderType === 'employee' && employeeData) {
+    Object.assign(payload, employeeData);
+  }
+
   return apiCall('/api/v1/documents/folders/', {
     method: 'POST',
     requiresAuth: true,
-    body: JSON.stringify({
-      name,
-      cabinet: cabinetId,
-      parent: parentId,
-      folder_type: 'generic',
-      is_locked: false,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -230,7 +264,6 @@ export async function deleteFolderItem(id: string, type: TreeNodeItem['type'] = 
     requiresAuth: true,
   });
 }
-
 
 // 7. Update, rename, or patch a folder, cabinet, or tenant item based on type
 export async function updateFolderItem(id: string, name: string, type: TreeNodeItem['type'] = 'folder') {
@@ -257,7 +290,6 @@ export async function moveFolderItem(
   type: TreeNodeItem['type'] = 'folder'
 ) {
   if (type === 'cabinet') {
-    // Moving a cabinet to a new sub_company (tenant)
     return apiCall(`/api/v1/documents/cabinets/${id}/`, {
       method: 'PATCH',
       requiresAuth: true,
@@ -266,7 +298,6 @@ export async function moveFolderItem(
   }
 
   if (type === 'sub_company' || type === 'mother_company') {
-    // Moving a sub-company under a new mother company
     return apiCall(`/api/v1/tenants/tenants/${id}/`, {
       method: 'PATCH',
       requiresAuth: true,
@@ -274,7 +305,6 @@ export async function moveFolderItem(
     });
   }
 
-  // Default: Moving a regular folder using your custom viewset move endpoint
   return apiCall(`/api/v1/documents/folders/${id}/move/`, {
     method: 'POST',
     requiresAuth: true,

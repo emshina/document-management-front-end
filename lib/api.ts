@@ -1,6 +1,4 @@
-
-
-
+import { EmployeePopupData } from "@/services/folderService";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -19,15 +17,38 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
   }
 
   if (options.requiresAuth) {
-    const token = localStorage.getItem('access_token') || localStorage.getItem('access');
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    // Robust token resolution matching your app's localStorage keys
+    let token = 
+      localStorage.getItem('access_token') || 
+      localStorage.getItem('access') || 
+      localStorage.getItem('token');
+
+    // Fallback search if keys are structured unusually or concatenated in storage
+    if (!token) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('access_token') || key === 'access')) {
+          if (key.length > 25) {
+            token = key.replace(/^access_token/, '');
+          } else {
+            token = localStorage.getItem(key);
+          }
+          break;
+        }
+      }
     }
 
-    // Automatically inject tenant context from localStorage for backend permissions
-    const tenantId = localStorage.getItem('tenant_id');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token.trim()}`;
+    }
+
+    // Automatically inject tenant context using active_company_id or tenant_id
+    const tenantId = 
+      localStorage.getItem('active_company_id') || 
+      localStorage.getItem('tenant_id');
+      
     if (tenantId) {
-      headers['X-Tenant-ID'] = tenantId; 
+      headers['X-Tenant-ID'] = tenantId.trim(); 
     }
   }
 
@@ -80,7 +101,7 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
   return response.json();
 }
 
-// Add this helper function to your existing lib/api.ts file
+// Helper function to resolve absolute API URLs
 export function getApiUrl(endpoint: string) {
   let targetEndpoint = endpoint;
   if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
@@ -99,4 +120,13 @@ export function getApiUrl(endpoint: string) {
   const cleanBase = API_BASE_URL.replace(/\/+$/, '');
   const cleanEndpoint = targetEndpoint.startsWith('/') ? targetEndpoint : `/${targetEndpoint}`;
   return `${cleanBase}${cleanEndpoint}`;
+}
+
+// Employee creation helper function
+export async function createEmployee(employeeData: any) {
+  return apiCall('/v1/hr/employees/', {
+    method: 'POST',
+    requiresAuth: true,
+    body: JSON.stringify(employeeData),
+  });
 }

@@ -1,15 +1,16 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createEmployee } from '@/lib/api';
 import {
   ChevronRight, ChevronDown, Building, Building2, Folder, Search, Loader2,
-  Trash2, Box, FileText, Upload, MoreVertical, FolderPlus, Check, X,
-  PanelLeftClose, PanelLeftOpen,
+  Trash2, Box, FileText, Upload, MoreVertical, FolderPlus, Lock, Users, User, Briefcase, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import {
   fetchFolderTree, createSubCompany, createCabinet, createFolderItem,
   deleteFolderItem, TreeNodeItem,
 } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
+import CreateItemModal from './CreateItemModal';
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 550;
@@ -28,7 +29,7 @@ export interface SelectedNode {
 }
 
 interface FolderTreeProps {
-  selectedItem?: TreeNodeItem | any | null; // <-- Added to sync external selection state
+  selectedItem?: TreeNodeItem | any | null;
   onSelectFolder?: (item: TreeNodeItem | any, meta?: SelectedNode) => void;
   onTriggerUpload?: (parentId: string, parentType: string, uploadType: 'file' | 'folder') => void;
 }
@@ -52,12 +53,12 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
 
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  
+  // Modal creation states
   const [creatingType, setCreatingType] = useState<'sub_company' | 'cabinet' | 'folder' | null>(null);
-  const [activeCreatingParentId, setActiveCreatingParentId] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeParentItem, setActiveParentItem] = useState<TreeNodeItem | null>(null);
 
-  // Sync selectedId when selectedItem changes from DocumentContentArea or Breadcrumbs
+  // Sync selectedId when selectedItem changes
   useEffect(() => {
     if (selectedItem?.id) {
       setSelectedId(selectedItem.id);
@@ -227,28 +228,48 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleCreateNode = async (parentItem: TreeNodeItem, e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newChildName.trim() || !creatingType || isSubmitting) return;
-    try {
-      setIsSubmitting(true);
-      if (creatingType === 'sub_company') await createSubCompany(newChildName.trim(), parentItem.id);
-      else if (creatingType === 'cabinet') await createCabinet(newChildName.trim(), parentItem.id);
-      else {
-        const itemType = parentItem.type === 'cabinet' ? 'cabinet' : 'folder';
-        await createFolderItem(newChildName.trim(), parentItem.id, itemType);
-      }
-      setNewChildName('');
-      setActiveCreatingParentId(null);
-      setCreatingType(null);
-      setExpanded((prev) => ({ ...prev, [parentItem.id]: true }));
-      await loadFolders();
-    } catch (err: any) {
-      alert(err.message || 'Failed to create item');
-    } finally {
-      setIsSubmitting(false);
+
+const handleModalSubmit = async (formData: {
+  name: string;
+  folderType: 'generic' | 'department' | 'employee' | 'client';
+  isLocked: boolean;
+  employeeData?: any;
+}) => {
+  if (!activeParentItem || !creatingType) return;
+  
+  try {
+    if (creatingType === 'sub_company') {
+      await createSubCompany(formData.name, activeParentItem.id);
+    } else if (creatingType === 'cabinet') {
+      await createCabinet(formData.name, activeParentItem.id);
+    } else if (formData.folderType === 'employee') {
+      // 🚀 Route employee creation to the HR endpoint
+      let payload = {
+        ...formData.employeeData,
+        // If created while viewing a department folder, automatically assign the department ID
+        department: formData.employeeData?.department || (activeParentItem.folder_type === 'department' ? activeParentItem.id : null),
+      };
+
+      await createEmployee(payload);
+    } else {
+      // Standard folder, department, or client folder creation
+      const itemType = activeParentItem.type === 'cabinet' ? 'cabinet' : 'folder';
+      await createFolderItem(
+        formData.name,
+        activeParentItem.id,
+        itemType,
+        formData.folderType,
+        formData.isLocked
+      );
     }
-  };
+
+    setExpanded((prev) => ({ ...prev, [activeParentItem.id]: true }));
+    await loadFolders();
+  } catch (err: any) {
+    alert(err.message || 'Failed to create item');
+    throw err;
+  }
+};
 
   const handleDeleteNode = async (item: TreeNodeItem, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -275,7 +296,18 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
 
   const displayedTree = useMemo(() => filterTreeItems(folderTree, filterText), [folderTree, filterText]);
 
-  // Tree rendering
+  const renderFolderIcon = (item: any) => {
+    if (item.type === 'mother_company') return <Building2 size={14} style={{ color: primaryColor }} className="flex-shrink-0" />;
+    if (item.type === 'sub_company') return <Building size={14} className="text-indigo-600 flex-shrink-0" />;
+    if (item.type === 'cabinet') return <Box size={14} className="text-amber-600 flex-shrink-0" />;
+    
+    if (item.folder_type === 'department') return <Users size={14} className="text-purple-600 flex-shrink-0" title="Department Folder" />;
+    if (item.folder_type === 'employee') return <User size={14} className="text-blue-600 flex-shrink-0" title="Employee Folder" />;
+    if (item.folder_type === 'client') return <Briefcase size={14} className="text-emerald-600 flex-shrink-0" title="Client Folder" />;
+    
+    return <Folder size={14} className="text-amber-500 flex-shrink-0" title="Generic Folder" />;
+  };
+
   const renderTree = (items: TreeNodeItem[], level = 0, ancestors: any[] = []) => {
     return items.map((item: any) => {
       const isExpanded = expanded[item.id] || Boolean(filterText);
@@ -302,7 +334,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
             } as React.CSSProperties}
             className="flex items-center justify-between py-1 px-1.5 rounded cursor-pointer hover:bg-[var(--hover-bg)] group transition text-gray-700 relative"
           >
-            <div className="flex items-center gap-1 min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
               {showChevron ? (
                 <button onClick={(e) => toggleExpand(item.id, e)} className="p-0.5 hover:bg-gray-200 rounded flex-shrink-0">
                   {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -311,14 +343,15 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
                 <span className="w-[18px] flex-shrink-0" />
               )}
 
-              {isMother && <Building2 size={14} style={{ color: primaryColor }} className="flex-shrink-0" />}
-              {isSubCompany && <Building size={14} className="text-indigo-600 flex-shrink-0" />}
-              {isCabinet && <Box size={14} className="text-amber-600 flex-shrink-0" />}
-              {isFolder && <Folder size={14} className="text-amber-500 flex-shrink-0" />}
+              {renderFolderIcon(item)}
 
               <span className={`text-[12px] truncate ${isSelected ? 'font-semibold' : ''}`} style={{ color: isSelected ? primaryColor : undefined }}>
                 {item.name}
               </span>
+
+              {item.is_locked && (
+                <Lock size={11} className="text-rose-500 flex-shrink-0 ml-0.5" title="Folder is locked" />
+              )}
             </div>
 
             {/* Actions menu */}
@@ -340,7 +373,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
                 >
                   {isMother && (
                     <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('sub_company'); setActiveCreatingParentId(item.id); setExpanded((p) => ({ ...p, [item.id]: true })); }}
+                      onClick={() => { setMenuOpenId(null); setCreatingType('sub_company'); setActiveParentItem(item); }}
                       className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 font-medium"
                       style={{ color: primaryColor }}
                     >
@@ -350,7 +383,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
 
                   {isSubCompany && (
                     <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('cabinet'); setActiveCreatingParentId(item.id); setExpanded((p) => ({ ...p, [item.id]: true })); }}
+                      onClick={() => { setMenuOpenId(null); setCreatingType('cabinet'); setActiveParentItem(item); }}
                       className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-indigo-700 font-medium"
                     >
                       <Box size={12} /> Create Cabinet
@@ -359,7 +392,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
 
                   {isCabinet && (
                     <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveCreatingParentId(item.id); setExpanded((p) => ({ ...p, [item.id]: true })); }}
+                      onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
                       className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
                     >
                       <FolderPlus size={12} /> Create Folder
@@ -369,7 +402,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
                   {isFolder && (
                     <>
                       <button
-                        onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveCreatingParentId(item.id); setExpanded((p) => ({ ...p, [item.id]: true })); }}
+                        onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
                         className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
                       >
                         <FolderPlus size={12} /> Create Sub-Folder
@@ -411,30 +444,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
               )}
             </div>
           </div>
-
-          {activeCreatingParentId === item.id && (
-            <form onSubmit={(e) => handleCreateNode(item, e)} className="ml-5 mt-0.5 mr-1 flex items-center gap-1">
-              <input
-                autoFocus
-                value={newChildName}
-                placeholder={`New ${creatingType?.replace('_', '-')} name`}
-                onChange={(e) => setNewChildName(e.target.value)}
-                className="w-full text-[11px] px-1.5 py-0.5 border rounded outline-none bg-white shadow-sm"
-                style={{ borderColor: primaryColor }}
-              />
-              <button type="submit" disabled={isSubmitting} className="p-1 rounded text-white flex-shrink-0" style={{ backgroundColor: primaryColor }} title="Save">
-                {isSubmitting ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setActiveCreatingParentId(null); setCreatingType(null); setNewChildName(''); }}
-                className="p-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition flex-shrink-0"
-                title="Cancel"
-              >
-                <X size={12} />
-              </button>
-            </form>
-          )}
 
           {isExpanded && (
             <div className="ml-2 border-l border-gray-200 pl-1">
@@ -537,6 +546,16 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
       >
         <div className="w-px h-10 bg-gray-300 group-hover:bg-purple-500 rounded" />
       </div>
+
+      {/* Separate Modal Component for Creating Sub-Company, Cabinet or Folder */}
+      <CreateItemModal
+        isOpen={Boolean(creatingType)}
+        onClose={() => { setCreatingType(null); setActiveParentItem(null); }}
+        onSubmit={handleModalSubmit}
+        creatingType={creatingType}
+        parentName={activeParentItem?.name}
+        primaryColor={primaryColor}
+      />
     </div>
   );
 }
