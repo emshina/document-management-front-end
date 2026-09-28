@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createEmployee } from '@/lib/api';
+// import { createEmployee } from '@/lib/api';
 import {
   ChevronRight, ChevronDown, Building, Building2, Folder, Search, Loader2,
   Trash2, Box, FileText, Upload, MoreVertical, FolderPlus, Lock, Users, User, Briefcase, PanelLeftClose, PanelLeftOpen
@@ -10,6 +10,7 @@ import {
   deleteFolderItem, TreeNodeItem,
 } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
+import { createEmployee, getApiUrl } from '@/lib/api';
 import CreateItemModal from './CreateItemModal';
 
 const MIN_WIDTH = 200;
@@ -18,13 +19,9 @@ const COLLAPSED_WIDTH = 48;
 
 export interface SelectedNode {
   item: any;
-  /** e.g. ["Visaro Group", "Kenya Ltd", "HR Cabinet", "Contracts"] */
   pathSegments: string[];
-  /** e.g. "Visaro Group / Kenya Ltd / HR Cabinet / Contracts" */
   fullPath: string;
-  /** e.g. "/Visaro Group/Kenya Ltd/HR Cabinet/Contracts" */
   slashPath: string;
-  /** ancestor ids from root down to the item itself */
   idPath: string[];
 }
 
@@ -44,7 +41,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string>('');
 
-  // ---------- Resize / collapse state ----------
   const [treeWidth, setTreeWidth] = useState(280);
   const [collapsed, setCollapsed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -54,18 +50,15 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   
-  // Modal creation states
   const [creatingType, setCreatingType] = useState<'sub_company' | 'cabinet' | 'folder' | null>(null);
   const [activeParentItem, setActiveParentItem] = useState<TreeNodeItem | null>(null);
 
-  // Sync selectedId when selectedItem changes
   useEffect(() => {
     if (selectedItem?.id) {
       setSelectedId(selectedItem.id);
     }
   }, [selectedItem]);
 
-  // Expand parent folders automatically when an item is selected externally
   useEffect(() => {
     if (!selectedItem?.id || folderTree.length === 0) return;
 
@@ -90,7 +83,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     }
   }, [selectedItem, folderTree]);
 
-  // Hydration-safe restore of persisted width / collapsed flag
   useEffect(() => {
     const savedWidth = localStorage.getItem('revver_folder_tree_width');
     const savedCollapsed = localStorage.getItem('revver_folder_tree_collapsed');
@@ -102,7 +94,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     if (savedCollapsed === '1') setCollapsed(true);
   }, []);
 
-  // Brand color
   useEffect(() => {
     const storedColor = localStorage.getItem('tenant_primary_color');
     if (storedColor) setPrimaryColor(storedColor);
@@ -119,7 +110,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
       .catch((err) => console.error('Error loading tree brand color:', err));
   }, []);
 
-  // ---------- Mouse drag resize ----------
   useEffect(() => {
     if (!isResizing) return;
 
@@ -173,7 +163,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }
   };
 
-  // Outside click for menus
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpenId(null);
@@ -182,7 +171,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Data Loading
   const loadFolders = async () => {
     try {
       const data = await fetchFolderTree();
@@ -203,7 +191,6 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     loadFolders();
   }, []);
 
-  // Path helpers
   const buildMeta = useCallback((item: any, ancestors: any[]): SelectedNode => {
     const chain = [...ancestors, item];
     const pathSegments = chain.map((n) => n.name);
@@ -228,48 +215,101 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // 📥 Handle downloading the bulk employee Excel template (with trailing slash)
+// 📥 Handle downloading the bulk employee Excel template
+  const handleDownloadEmployeeTemplate = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      // Use getApiUrl to point to Django backend (port 8000) instead of Next.js (port 3000)
+      const targetUrl = getApiUrl('/v1/hr/employees/bulk-template/');
+      
+      const res = await fetch(targetUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to download template');
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'employee_bulk_upload_template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert('Failed to download template: ' + (err.message || 'Unknown error'));
+    }
+  };
 
-const handleModalSubmit = async (formData: {
-  name: string;
-  folderType: 'generic' | 'department' | 'employee' | 'client';
-  isLocked: boolean;
-  employeeData?: any;
-}) => {
-  if (!activeParentItem || !creatingType) return;
-  
-  try {
-    if (creatingType === 'sub_company') {
-      await createSubCompany(formData.name, activeParentItem.id);
-    } else if (creatingType === 'cabinet') {
-      await createCabinet(formData.name, activeParentItem.id);
-    } else if (formData.folderType === 'employee') {
-      // 🚀 Route employee creation to the HR endpoint
-      let payload = {
-        ...formData.employeeData,
-        // If created while viewing a department folder, automatically assign the department ID
-        department: formData.employeeData?.department || (activeParentItem.folder_type === 'department' ? activeParentItem.id : null),
-      };
+  // 📤 Handle uploading the filled employee Excel file
+  // 📤 Handle uploading the filled employee Excel file using apiCall
+  const handleUploadEmployeeFile = async (e: React.ChangeEvent<HTMLInputElement>, departmentId?: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      await createEmployee(payload);
-    } else {
-      // Standard folder, department, or client folder creation
-      const itemType = activeParentItem.type === 'cabinet' ? 'cabinet' : 'folder';
-      await createFolderItem(
-        formData.name,
-        activeParentItem.id,
-        itemType,
-        formData.folderType,
-        formData.isLocked
-      );
+    const formData = new FormData();
+    formData.append('file', file);
+    if (departmentId) {
+      formData.append('department', departmentId);
     }
 
-    setExpanded((prev) => ({ ...prev, [activeParentItem.id]: true }));
-    await loadFolders();
-  } catch (err: any) {
-    alert(err.message || 'Failed to create item');
-    throw err;
-  }
-};
+    try {
+      // ✅ Use apiCall instead of raw fetch so Authorization and X-Tenant-ID headers are correctly injected
+      const result = await apiCall('/v1/hr/employees/bulk-upload/', {
+        method: 'POST',
+        requiresAuth: true,
+        body: formData, // apiCall automatically leaves out 'Content-Type: application/json' for FormData
+      });
+
+      alert(`Success! ${result.message || 'Employees uploaded successfully.'}`);
+      await loadFolders();
+    } catch (err: any) {
+      alert('Error uploading file: ' + (err.message || 'Unknown error'));
+    } finally {
+      e.target.value = '';
+    }
+  };
+  
+
+  const handleModalSubmit = async (formData: {
+    name: string;
+    folderType: 'generic' | 'department' | 'employee' | 'client';
+    isLocked: boolean;
+    employeeData?: any;
+  }) => {
+    if (!activeParentItem || !creatingType) return;
+    
+    try {
+      if (creatingType === 'sub_company') {
+        await createSubCompany(formData.name, activeParentItem.id);
+      } else if (creatingType === 'cabinet') {
+        await createCabinet(formData.name, activeParentItem.id);
+      } else if (formData.folderType === 'employee') {
+        let payload = {
+          ...formData.employeeData,
+          department: formData.employeeData?.department || (activeParentItem.folder_type === 'department' ? activeParentItem.id : null),
+        };
+
+        await createEmployee(payload);
+      } else {
+        const itemType = activeParentItem.type === 'cabinet' ? 'cabinet' : 'folder';
+        await createFolderItem(
+          formData.name,
+          activeParentItem.id,
+          itemType,
+          formData.folderType,
+          formData.isLocked
+        );
+      }
+
+      setExpanded((prev) => ({ ...prev, [activeParentItem.id]: true }));
+      await loadFolders();
+    } catch (err: any) {
+      alert(err.message || 'Failed to create item');
+      throw err;
+    }
+  };
 
   const handleDeleteNode = async (item: TreeNodeItem, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -325,6 +365,15 @@ const handleModalSubmit = async (formData: {
 
       return (
         <div key={item.id} style={{ paddingLeft: level ? 10 : 0 }}>
+          {/* Hidden file input for bulk upload on any folder */}
+          <input
+            type="file"
+            id={`bulk-upload-input-${item.id}`}
+            style={{ display: 'none' }}
+            accept=".xlsx, .xls, .csv"
+            onChange={(e) => handleUploadEmployeeFile(e, item.folder_type === 'department' ? item.id : undefined)}
+          />
+
           <div
             onClick={() => handleSelect(item, ancestors)}
             title={meta.slashPath}
@@ -369,7 +418,7 @@ const handleModalSubmit = async (formData: {
               {menuOpenId === item.id && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="absolute right-0 top-6 z-30 w-44 bg-white border rounded shadow-lg py-1 text-[11px]"
+                  className="absolute right-0 top-6 z-30 w-52 bg-white border rounded shadow-lg py-1 text-[11px]"
                 >
                   {isMother && (
                     <button
@@ -422,6 +471,25 @@ const handleModalSubmit = async (formData: {
                     </>
                   )}
 
+                  {/* 🚀 Universal Employee Bulk Template & Upload Options for ALL folders */}
+                  <div className="my-1 border-t" />
+                  <button
+                    onClick={() => { setMenuOpenId(null); handleDownloadEmployeeTemplate(); }}
+                    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-purple-700 font-medium"
+                  >
+                    <FileText size={12} /> Download Employee Template
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpenId(null);
+                      document.getElementById(`bulk-upload-input-${item.id}`)?.click();
+                    }}
+                    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-emerald-700 font-medium"
+                  >
+                    <Upload size={12} /> Bulk Upload Employees
+                  </button>
+
+                  <div className="my-1 border-t" />
                   <button
                     onClick={() => { navigator.clipboard?.writeText(meta.slashPath); setMenuOpenId(null); }}
                     className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 font-medium"

@@ -42,19 +42,29 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
       headers['Authorization'] = `Bearer ${token.trim()}`;
     }
 
-    // Automatically inject tenant context using active_company_id or tenant_id
-    const tenantId = 
+    // Automatically inject tenant context using active_company_id or tenant_id with strict sanitization
+    let tenantId = 
       localStorage.getItem('active_company_id') || 
       localStorage.getItem('tenant_id');
       
     if (tenantId) {
-      headers['X-Tenant-ID'] = tenantId.trim(); 
+      // Strip out display text/parentheses if the old bad string is cached in localStorage
+      if (tenantId.includes('(')) {
+        tenantId = tenantId.split('(')[0].trim();
+      }
+      
+      // If it contains spaces or isn't a proper UUID string, ignore it to prevent 500 errors
+      if (tenantId.includes(' ') || tenantId.length > 50) {
+        tenantId = '';
+      }
+
+      if (tenantId) {
+        headers['X-Tenant-ID'] = tenantId.trim(); 
+      }
     }
   }
 
   // ✅ ROBUST URL RESOLUTION:
-  // If Django pagination returns an absolute URL (e.g., http://localhost:8000/api/v1/...),
-  // extract just the pathname and search parameters so we don't duplicate the base URL.
   let targetEndpoint = endpoint;
   if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
     try {
@@ -70,7 +80,7 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
     targetEndpoint = targetEndpoint.replace(/^\/api/, '');
   }
 
-  // ✅ Safely combine base URL and endpoint, handling any missing or duplicate slashes
+  // ✅ Safely combine base URL and endpoint
   const cleanBase = API_BASE_URL.replace(/\/+$/, '');
   const cleanEndpoint = targetEndpoint.startsWith('/') ? targetEndpoint : `/${targetEndpoint}`;
   const requestUrl = `${cleanBase}${cleanEndpoint}`;

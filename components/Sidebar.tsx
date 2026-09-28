@@ -16,7 +16,8 @@ import {
   ChevronLeft, 
   ChevronRight, 
   LogOut,
-  Sparkles
+  Sparkles,
+  Users // Added icon for expiring contracts
 } from 'lucide-react';
 
 interface TenantData {
@@ -26,27 +27,24 @@ interface TenantData {
 }
 
 interface SidebarProps {
-  isOpen: boolean; // Mobile drawer open state
+  isOpen: boolean;
   onClose: () => void;
   onOpenAllFeatures: () => void;
 }
 
 export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(256); // Default 64 (w-64 = 256px)
+  const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
   const [tenant, setTenant] = useState<TenantData | null>(null);
   
   const pathname = usePathname();
   const sidebarRef = useRef<HTMLElement>(null);
 
-  // Fetch current tenant branding using the dedicated current endpoint
-// Fetch current tenant branding safely handling single or list responses
   useEffect(() => {
     apiCall('/v1/tenants/tenants/current/', { requiresAuth: true })
       .then((data) => {
         if (!data) return;
-        // Handle if API returns a direct object vs a paginated results array
         const tenantObj = Array.isArray(data) 
           ? data[0] 
           : data.results?.[0] || data;
@@ -58,24 +56,22 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
       .catch((err) => console.error('Error loading tenant branding:', err));
   }, []);
 
-  // Safely parse logo URL (handles relative media paths from Django)
   const getLogoUrl = (logoPath?: string) => {
     if (!logoPath) return '';
     if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
       return logoPath;
     }
-    
-    // Fallback cleanly to your API environment base URL or window origin
     const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
     const backendRoot = apiBase ? apiBase.replace(/\/api\/?$/, '') : window.location.origin;
-    
     return `${backendRoot}${logoPath.startsWith('/') ? '' : '/'}${logoPath}`;
   };
 
+  // SINGLE declaration of navItems (with Expiring Contracts included)
   const navItems = [
     { name: 'Home', href: '/', icon: Home },
     { name: 'Documents', href: '/documents', icon: FolderKanban },
     { name: 'Document Requests', href: '/document-requests', icon: FileCheck },
+    { name: 'Expiring Contracts', href: '/expiring-contracts', icon: Users },
     { name: 'Folder Template', href: '/folder-template', icon: Layers },
     { name: 'eSignature', href: '/esignature', icon: PenTool },
     { name: 'Workflow', href: '/workflow', icon: Workflow },
@@ -115,12 +111,10 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
     window.location.href = '/login';
   };
 
-  // Dynamically apply primary color from database, fallback to default purple
   const customBg = tenant?.effective_primary_color || '#2D1B4E';
 
   return (
     <>
-      {/* Mobile Backdrop */}
       {isOpen && (
         <div 
           onClick={onClose} 
@@ -128,7 +122,6 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
         />
       )}
 
-      {/* Sidebar Container */}
       <aside 
         ref={sidebarRef}
         style={{ 
@@ -142,9 +135,7 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
           ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        {/* Top Section */}
         <div className="flex flex-col h-full overflow-hidden">
-          {/* Logo & Collapse / Close Header */}
           <div className="flex items-center justify-between px-4 py-5 border-b border-white/10 bg-black/10">
             {(!isCollapsed || isOpen) && (
               <div className="flex items-center gap-2.5 truncate">
@@ -165,7 +156,6 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
               </div>
             )}
 
-            {/* Desktop Collapse Toggle */}
             <button 
               onClick={() => {
                 setIsCollapsed(!isCollapsed);
@@ -177,13 +167,11 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
               {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
 
-            {/* Mobile Close Button */}
             <button onClick={onClose} className="md:hidden text-white/70 hover:text-white">
               <X size={20} />
             </button>
           </div>
 
-          {/* Navigation Links */}
           <nav className="mt-4 space-y-1.5 px-3 flex-1 overflow-y-auto scrollbar-none">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -211,7 +199,6 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
             })}
           </nav>
 
-          {/* Bottom Section: All Features & Logout */}
           <div className="p-3 border-t border-white/10 space-y-1.5 bg-black/10">
             <button 
               onClick={onOpenAllFeatures}
@@ -236,7 +223,6 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
           </div>
         </div>
 
-        {/* Resizer Handle (Desktop Only) */}
         <div 
           onMouseDown={() => setIsResizing(true)}
           className="hidden md:flex absolute top-0 right-0 w-1.5 h-full cursor-col-resize items-center justify-center hover:bg-white/20 group transition-colors"

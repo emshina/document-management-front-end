@@ -1,5 +1,3 @@
-
-
 // app/login/page.tsx
 
 'use client';
@@ -40,9 +38,19 @@ export default function LoginPage() {
         const tenantName = userData.tenant_name || 'CDL Holding Group Limited';
         
         // 👉 Capture and store the tenant ID/identifier robustly
-        const tenantId = userData.tenant_id || userData.tenant || '';
+        let tenantId = userData.tenant_id || userData.tenant || '';
+        
+        if (typeof tenantId === 'object' && tenantId !== null) {
+          tenantId = tenantId.id || tenantId.pk || '';
+        }
+
+        if (typeof tenantId === 'string' && (tenantId.includes('(') || tenantId.includes(' '))) {
+          tenantId = ''; 
+        }
+
         if (tenantId) {
           localStorage.setItem('tenant_id', String(tenantId));
+          localStorage.setItem('active_company_id', String(tenantId));
         }
 
         const permissionsList = userData.permissions || userData.user_permissions || userData.role?.permissions || [];
@@ -62,10 +70,18 @@ export default function LoginPage() {
             localStorage.setItem('user_full_name', userProfile.full_name || userProfile.email || email);
             localStorage.setItem('tenant_name', userProfile.tenant_name || 'CDL Holding Group Limited');
             
-            // 👉 Capture tenant ID from profile fallback
-            const profileTenantId = userProfile.tenant_id || userProfile.tenant || '';
+            // 👉 Capture tenant ID from profile fallback safely
+            let profileTenantId = userProfile.tenant_id || userProfile.tenant || '';
+            if (typeof profileTenantId === 'object' && profileTenantId !== null) {
+              profileTenantId = profileTenantId.id || profileTenantId.pk || '';
+            }
+            if (typeof profileTenantId === 'string' && (profileTenantId.includes('(') || profileTenantId.includes(' '))) {
+              profileTenantId = '';
+            }
+
             if (profileTenantId) {
               localStorage.setItem('tenant_id', String(profileTenantId));
+              localStorage.setItem('active_company_id', String(profileTenantId));
             }
             
             const backendPerms = userProfile.permissions || userProfile.role?.permissions || userProfile.user_permissions || [];
