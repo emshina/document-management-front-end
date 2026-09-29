@@ -136,7 +136,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     });
   }, [selectedItem]);
 
-  const loadContents = async () => {
+const loadContents = async () => {
     if (!itemId || itemId === 'default-folder-id') {
       setContents([]);
       setLoading(false);
@@ -166,21 +166,25 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
         };
       });
 
-      const documentsList: ContentItem[] = (data.documents || []).map((d: Record<string, unknown>) => ({
-        id: String(d.id || ''),
-        name: String(d.name || ''),
-        type: String(d.type || 'file'),
-        updated_at: d.updated_at ? String(d.updated_at) : (d.created_at ? String(d.created_at) : undefined),
-        created_at: d.created_at ? String(d.created_at) : undefined,
-        file: d.file ? String(d.file) : undefined,
-        file_type: d.file_type ? String(d.file_type) : undefined,
-        reference_no: d.reference_no ? String(d.reference_no) : undefined,
-        cabinet: d.cabinet ? String(d.cabinet) : undefined,
-        folder: d.folder ? String(d.folder) : undefined,
-        size: d.size ? String(d.size) : undefined,
-        created_by: d.created_by ? String(d.created_by) : undefined,
-        current_version: d.current_version as { file?: string } | undefined,
-      }));
+      // RESTRICTION: Only load/display documents if the current view is a folder
+      let documentsList: ContentItem[] = [];
+      if (itemType === 'folder') {
+        documentsList = (data.documents || []).map((d: Record<string, unknown>) => ({
+          id: String(d.id || ''),
+          name: String(d.name || ''),
+          type: String(d.type || 'file'),
+          updated_at: d.updated_at ? String(d.updated_at) : (d.created_at ? String(d.created_at) : undefined),
+          created_at: d.created_at ? String(d.created_at) : undefined,
+          file: d.file ? String(d.file) : undefined,
+          file_type: d.file_type ? String(d.file_type) : undefined,
+          reference_no: d.reference_no ? String(d.reference_no) : undefined,
+          cabinet: d.cabinet ? String(d.cabinet) : undefined,
+          folder: d.folder ? String(d.folder) : undefined,
+          size: d.size ? String(d.size) : undefined,
+          created_by: d.created_by ? String(d.created_by) : undefined,
+          current_version: d.current_version as { file?: string } | undefined,
+        }));
+      }
 
       setContents([...foldersList, ...documentsList]);
     } catch (err: unknown) {

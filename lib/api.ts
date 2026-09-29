@@ -17,23 +17,41 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
   }
 
   if (options.requiresAuth) {
-    // Robust token resolution matching your app's localStorage keys
-    let token = 
+    let token: string | null = null;
+    let tenantId: string | null = null;
+
+    // 1. Direct standard lookups
+    token = 
       localStorage.getItem('access_token') || 
       localStorage.getItem('access') || 
       localStorage.getItem('token');
 
-    // Fallback search if keys are structured unusually or concatenated in storage
-    if (!token) {
+    tenantId = 
+      localStorage.getItem('active_company_id') || 
+      localStorage.getItem('tenant_id');
+
+    // 2. Fallback deep-scan across all localStorage items & values
+    if (!token || !tenantId) {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('access_token') || key === 'access')) {
-          if (key.length > 25) {
-            token = key.replace(/^access_token/, '');
-          } else {
-            token = localStorage.getItem(key);
+        if (!key) continue;
+        const val = localStorage.getItem(key) || '';
+        const combinedBlob = `${key} ${val}`;
+
+        // Hunt down JWT token pattern (starts with eyJ...)
+        if (!token) {
+          const jwtMatch = combinedBlob.match(/(eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+)/);
+          if (jwtMatch) {
+            token = jwtMatch[1];
           }
-          break;
+        }
+
+        // Hunt down Tenant UUID pattern
+        if (!tenantId) {
+          const uuidMatch = combinedBlob.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+          if (uuidMatch) {
+            tenantId = uuidMatch[1];
+          }
         }
       }
     }
@@ -42,25 +60,8 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
       headers['Authorization'] = `Bearer ${token.trim()}`;
     }
 
-    // Automatically inject tenant context using active_company_id or tenant_id with strict sanitization
-    let tenantId = 
-      localStorage.getItem('active_company_id') || 
-      localStorage.getItem('tenant_id');
-      
     if (tenantId) {
-      // Strip out display text/parentheses if the old bad string is cached in localStorage
-      if (tenantId.includes('(')) {
-        tenantId = tenantId.split('(')[0].trim();
-      }
-      
-      // If it contains spaces or isn't a proper UUID string, ignore it to prevent 500 errors
-      if (tenantId.includes(' ') || tenantId.length > 50) {
-        tenantId = '';
-      }
-
-      if (tenantId) {
-        headers['X-Tenant-ID'] = tenantId.trim(); 
-      }
+      headers['X-Tenant-ID'] = tenantId.trim();
     }
   }
 

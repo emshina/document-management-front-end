@@ -153,6 +153,41 @@ export default function SentTab() {
     }
   };
 
+  const handleTerminateRequest = async () => {
+    if (!confirm('Are you sure you want to terminate this request? The upload link will be permanently disabled for the candidate.')) return;
+    setActionLoading(true);
+    try {
+      await apiCall(`/v1/document-requests/requests/${selectedRequest!.id}/terminate/`, {
+        requiresAuth: true,
+        method: 'POST',
+      });
+      alert('Document request terminated successfully.');
+      setSelectedRequest(null);
+      fetchSentRequests();
+    } catch (error) {
+      console.error('Failed to terminate request:', error);
+      alert('Failed to terminate the request. Please try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendReminder = async () => {
+    setActionLoading(true);
+    try {
+      await apiCall(`/v1/document-requests/requests/${selectedRequest!.id}/remind/`, {
+        requiresAuth: true,
+        method: 'POST',
+      });
+      alert('Reminder email dispatched successfully to the recipient.');
+    } catch (error) {
+      console.error('Failed to send reminder:', error);
+      alert('Failed to send reminder email. Please try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleViewFile = async (fileUrl: string) => {
     try {
       setActionLoading(true);
@@ -203,14 +238,29 @@ export default function SentTab() {
             <ChevronLeft size={16} /> Back to Sent List
           </button>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSendReminder}
+              disabled={actionLoading}
+              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg text-blue-700 transition cursor-pointer disabled:opacity-50"
+            >
+              <Clock size={12} /> Send Reminder
+            </button>
+
+            <button
+              onClick={handleTerminateRequest}
+              disabled={actionLoading}
+              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg text-red-700 transition cursor-pointer disabled:opacity-50"
+            >
+              <XCircle size={12} /> Terminate Request
+            </button>
+
             <button
               onClick={() => setShowDebug(!showDebug)}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition cursor-pointer"
+              className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition cursor-pointer"
             >
-              <Code size={12} /> {showDebug ? 'Hide Raw JSON' : 'Inspect Raw Item'}
+              <Code size={12} /> {showDebug ? 'Hide Raw JSON' : 'Inspect'}
             </button>
-            <span className="text-xs text-gray-500 font-mono">Request ID: #{selectedRequest.id}</span>
           </div>
         </div>
 

@@ -244,22 +244,32 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
 
   // 📤 Handle uploading the filled employee Excel file
   // 📤 Handle uploading the filled employee Excel file using apiCall
+// 📤 Handle uploading the filled employee Excel file using apiCall
   const handleUploadEmployeeFile = async (e: React.ChangeEvent<HTMLInputElement>, departmentId?: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Grab the active tenant ID from local storage 
+    // (Check your app's specific local storage key for the active company/tenant)
+    const activeTenantId = localStorage.getItem('active_company_id') || localStorage.getItem('tenant_id');
+
     const formData = new FormData();
     formData.append('file', file);
+    
     if (departmentId) {
       formData.append('department', departmentId);
     }
+    
+    // Explicitly inject tenant_id into the form data so the backend never guesses wrong
+    if (activeTenantId) {
+      formData.append('tenant_id', activeTenantId);
+    }
 
     try {
-      // ✅ Use apiCall instead of raw fetch so Authorization and X-Tenant-ID headers are correctly injected
       const result = await apiCall('/v1/hr/employees/bulk-upload/', {
         method: 'POST',
         requiresAuth: true,
-        body: formData, // apiCall automatically leaves out 'Content-Type: application/json' for FormData
+        body: formData, 
       });
 
       alert(`Success! ${result.message || 'Employees uploaded successfully.'}`);
