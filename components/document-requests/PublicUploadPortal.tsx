@@ -12,11 +12,11 @@ interface RequestItem {
   form_id?: string | number;
   form?: string | number | { id: string | number };
   is_uploaded?: boolean;
-  is_submitted?: boolean; // Added to track if an interactive form has been filled/submitted
+  is_submitted?: boolean;
   fulfilled_document?: {
     file?: string;
   } | null;
-  form_response?: any; // Added to support backend form response check
+  form_response?: any;
   file_url?: string;
   status?: string;
 }
@@ -39,6 +39,7 @@ interface PublicUploadPortalProps {
 export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
   const [requestData, setRequestData] = useState<DocumentRequestData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   
   const [stagedFiles, setStagedFiles] = useState<{ [key: string | number]: File }>({});
@@ -47,12 +48,11 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
   const [submittingFinal, setSubmittingFinal] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
 
-  // Function to fetch portal data (extracted so it can be called on window focus/return)
   const fetchPortalData = async () => {
     try {
+      setErrorMessage(null);
       const data = await apiCall(`/v1/document-requests/public/${token}/`, { requiresAuth: false });
       
-      // Check if URL has a form_completed indicator left behind by the form filler page
       const params = new URLSearchParams(window.location.search);
       const completedFormId = params.get('form_completed');
 
@@ -72,8 +72,11 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
 
       setRequestData(data);
       setIsCompleted(data?.completed || false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load document request portal:', error);
+      // Extract specific backend error message if available (e.g., terminated or expired)
+      const backendMessage = error?.response?.data?.error || error?.message || 'Invalid or expired request link.';
+      setErrorMessage(backendMessage);
     } finally {
       setIsLoading(false);
     }
@@ -83,7 +86,6 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
     if (token) {
       fetchPortalData();
 
-      // Clean up the query param from the URL bar cleanly without refreshing the page
       const params = new URLSearchParams(window.location.search);
       if (params.has('form_completed')) {
         params.delete('form_completed');
@@ -94,7 +96,6 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
     }
   }, [token]);
 
-  // Automatically refresh data when user switches back to this tab (e.g. returning from filling out a form)
   useEffect(() => {
     const handleFocus = () => {
       if (token) {
@@ -141,10 +142,7 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
   const handleFinishRequest = async () => {
     if (!requestData) return;
 
-    // Validate ALL required items (both file uploads/forms) before final submission
     for (const item of requestData.items) {
-      const resolvedFormId = item?.formId || item?.form_id || (typeof item?.form === 'object' ? item?.form?.id : item?.form);
-      
       const isUploadedBool = Boolean(item.is_uploaded || item.fulfilled_document);
       const isFormSubmittedBool = Boolean(item.is_submitted || item.form_response);
       
@@ -159,7 +157,6 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
 
     setSubmittingFinal(true);
     try {
-      // Upload any staged individual files first
       for (const [itemId, fileObj] of Object.entries(stagedFiles)) {
         const formData = new FormData();
         formData.append('file', fileObj);
@@ -172,16 +169,16 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
         });
       }
 
-      // Finalize the overall batch request bundle
       await apiCall(`/v1/document-requests/public/${token}/submit/`, {
         requiresAuth: false,
         method: 'POST',
       });
 
       setIsCompleted(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Final submission failed:', error);
-      alert('Failed to finalize submission. Please try again.');
+      const errorMsg = error?.response?.data?.error || 'Failed to finalize submission. Please try again.';
+      alert(errorMsg);
     } finally {
       setSubmittingFinal(false);
     }
@@ -195,10 +192,18 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
     );
   }
 
-  if (!requestData) {
+  if (errorMessage || !requestData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-500 text-sm">
-        Invalid or expired request link.
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-8 max-w-md w-full text-center space-y-4 shadow-sm">
+          <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+            <AlertCircle size={24} />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900">Access Restricted</h2>
+          <p className="text-sm text-gray-600">
+            {errorMessage || 'Invalid or expired request link.'}
+          </p>
+        </div>
       </div>
     );
   }
@@ -227,7 +232,6 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
   const isUploadedBool = Boolean(activeItem?.is_uploaded || activeItem?.fulfilled_document);
   const isFormSubmittedBool = Boolean(activeItem?.is_submitted || activeItem?.form_response);
 
-  // Safely resolve form identifier
   const resolvedFormId = activeItem?.formId || activeItem?.form_id || (typeof activeItem?.form === 'object' ? activeItem?.form?.id : activeItem?.form);
   const isInteractiveForm = activeItem?.type === 'form' || Boolean(resolvedFormId);
 
@@ -283,7 +287,6 @@ export default function PublicUploadPortal({ token }: PublicUploadPortalProps) {
                       ? 'You have successfully filled out this form!' 
                       : 'This is an interactive form requirement. Please fill it out using the link below.'}
                   </p>
-                  {/* Updated Link: passes request_token, item_id, and return_url with form_completed query flag */}
                   <a
                     href={`/forms/fill/${resolvedFormId}?request_token=${token}&item_id=${activeItem.id}&return_url=${encodeURIComponent(window.location.pathname + '?form_completed=' + activeItem.id)}`}
                     className="px-4 py-2 bg-primary hover:opacity-90 text-primary-foreground rounded-lg text-xs font-semibold transition shadow-sm"

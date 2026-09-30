@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Send, ChevronLeft, Upload, FileText, CheckCircle2, Clock, Eye, Trash2, XCircle, Code, ShieldAlert, Loader2 } from 'lucide-react';
+import { Send, ChevronLeft, Upload, FileText, CheckCircle2, Clock, Eye, Trash2, XCircle, Code, ShieldAlert, Loader2, Edit3, Save } from 'lucide-react';
 import { apiCall } from '@/lib/api';
 import { useTenant } from '@/hooks/useTenant';
 
@@ -38,6 +38,11 @@ export default function SentTab() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [forceUploaded, setForceUploaded] = useState<{ [key: string | number]: boolean }>({});
+
+  // Recipient editing states
+  const [isEditingRecipient, setIsEditingRecipient] = useState(false);
+  const [editEmail, setEditEmail] = useState('');
+  const [editName, setEditName] = useState('');
   
   const { primaryColor } = useTenant();
 
@@ -95,6 +100,9 @@ export default function SentTab() {
   const handleSelectRequest = async (item: SentItem) => {
     setSelectedRequest(item);
     setSelectedDocIndex(0);
+    setEditEmail(item.to);
+    setEditName(item.recipient_name || '');
+    setIsEditingRecipient(false);
     setIsDetailLoading(true);
 
     try {
@@ -102,6 +110,8 @@ export default function SentTab() {
       const parsedList = parseRequestList([detailedData]);
       if (parsedList.length > 0) {
         setSelectedRequest(parsedList[0]);
+        setEditEmail(parsedList[0].to);
+        setEditName(parsedList[0].recipient_name || '');
       }
     } catch (error) {
       console.error('Failed to fetch request details:', error);
@@ -148,6 +158,58 @@ export default function SentTab() {
     } catch (error) {
       console.error('Failed to delete document file:', error);
       alert('Failed to delete the uploaded file. Please try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handler to delete the entire document request
+  const handleDeleteEntireRequest = async () => {
+    if (!selectedRequest) return;
+    if (!confirm('Are you sure you want to permanently delete this entire document request? This action cannot be undone.')) return;
+    
+    setActionLoading(true);
+    try {
+      await apiCall(`/v1/document-requests/requests/${selectedRequest.id}/`, {
+        requiresAuth: true,
+        method: 'DELETE',
+      });
+      alert('Document request deleted successfully.');
+      setSelectedRequest(null);
+      fetchSentRequests();
+    } catch (error) {
+      console.error('Failed to delete document request:', error);
+      alert('Failed to delete the request. Please check permissions and try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handler to update email/recipient details
+  const handleUpdateRecipientDetails = async () => {
+    if (!selectedRequest) return;
+    if (!editEmail.trim()) {
+      alert('Email address cannot be blank.');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      await apiCall(`/v1/document-requests/requests/${selectedRequest.id}/update_details/`, {
+        requiresAuth: true,
+        method: 'PATCH',
+        body: JSON.stringify({
+          recipient_email: editEmail,
+          recipient_name: editName,
+          resend_link: true
+        }),
+      });
+      alert('Recipient details updated and upload link re-sent successfully.');
+      setIsEditingRecipient(false);
+      handleSelectRequest(selectedRequest);
+    } catch (error) {
+      console.error('Failed to update recipient details:', error);
+      alert('Failed to update recipient email/name. Please try again.');
     } finally {
       setActionLoading(false);
     }
@@ -238,7 +300,7 @@ export default function SentTab() {
             <ChevronLeft size={16} /> Back to Sent List
           </button>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleSendReminder}
               disabled={actionLoading}
@@ -250,9 +312,17 @@ export default function SentTab() {
             <button
               onClick={handleTerminateRequest}
               disabled={actionLoading}
+              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg text-amber-800 transition cursor-pointer disabled:opacity-50"
+            >
+              <XCircle size={12} /> Terminate
+            </button>
+
+            <button
+              onClick={handleDeleteEntireRequest}
+              disabled={actionLoading}
               className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg text-red-700 transition cursor-pointer disabled:opacity-50"
             >
-              <XCircle size={12} /> Terminate Request
+              <Trash2 size={12} /> Delete Request
             </button>
 
             <button
@@ -275,17 +345,65 @@ export default function SentTab() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
-            <div>
-              <div 
-                style={{ color: primaryColor }}
-                className="text-xs font-semibold uppercase tracking-wider mb-1"
-              >
-                Recipient:
+            
+            {/* Recipient Details & Editing Card */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <div 
+                  style={{ color: primaryColor }}
+                  className="text-xs font-semibold uppercase tracking-wider"
+                >
+                  Recipient Information:
+                </div>
+                <button
+                  onClick={() => setIsEditingRecipient(!isEditingRecipient)}
+                  className="text-xs text-gray-600 hover:text-gray-900 flex items-center gap-1 font-medium bg-white px-2.5 py-1 border border-gray-200 rounded-md transition cursor-pointer"
+                >
+                  <Edit3 size={12} /> {isEditingRecipient ? 'Cancel' : 'Change Email/Name'}
+                </button>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-800 font-medium">
-                <Send size={14} style={{ color: primaryColor }} />
-                {selectedRequest.to} ({selectedRequest.recipient_name})
-              </div>
+
+              {!isEditingRecipient ? (
+                <div className="flex items-center gap-2 text-sm text-gray-800 font-medium">
+                  <Send size={14} style={{ color: primaryColor }} />
+                  {selectedRequest.to} <span className="text-gray-500 font-normal">({selectedRequest.recipient_name})</span>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-600 mb-1">Recipient Name</label>
+                      <input 
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Full Name"
+                        className="w-full text-xs px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-600 mb-1">Recipient Email Address</label>
+                      <input 
+                        type="email"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        className="w-full text-xs px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      onClick={handleUpdateRecipientDetails}
+                      disabled={actionLoading}
+                      style={{ backgroundColor: primaryColor }}
+                      className="flex items-center gap-1.5 text-xs text-white px-3.5 py-1.5 rounded-lg font-medium transition shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      <Save size={12} /> {actionLoading ? 'Saving...' : 'Save & Resend Link'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="border-t border-gray-100 pt-4">

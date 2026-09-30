@@ -68,7 +68,8 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
 
   // SINGLE declaration of navItems (with Expiring Contracts included)
   const navItems = [
-    { name: 'Home', href: '/', icon: Home },
+    
+    { name: 'Home', href: '/company-home', icon: Home },
     { name: 'Documents', href: '/documents', icon: FolderKanban },
     { name: 'Document Requests', href: '/document-requests', icon: FileCheck },
     { name: 'Expiring Contracts', href: '/expiring-contracts', icon: Users },
