@@ -20,41 +20,25 @@ export async function apiCall(endpoint: string, options: FetchOptions = {}) {
     let token: string | null = null;
     let tenantId: string | null = null;
 
-    // 1. Direct standard lookups
+    // 1. Direct standard token lookups
     token = 
       localStorage.getItem('access_token') || 
       localStorage.getItem('access') || 
       localStorage.getItem('token');
 
-    tenantId = 
-      localStorage.getItem('active_company_id') || 
-      localStorage.getItem('tenant_id');
-
-    // 2. Fallback deep-scan across all localStorage items & values
-    if (!token || !tenantId) {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        const val = localStorage.getItem(key) || '';
-        const combinedBlob = `${key} ${val}`;
-
-        // Hunt down JWT token pattern (starts with eyJ...)
-        if (!token) {
-          const jwtMatch = combinedBlob.match(/(eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+)/);
-          if (jwtMatch) {
-            token = jwtMatch[1];
-          }
-        }
-
-        // Hunt down Tenant UUID pattern
-        if (!tenantId) {
-          const uuidMatch = combinedBlob.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
-          if (uuidMatch) {
-            tenantId = uuidMatch[1];
-          }
-        }
-      }
+    // 2. Prioritize explicit tenant passed via options headers first
+    const explicitHeaderTenant = headers['X-Tenant-ID'] || headers['x-tenant-id'];
+    
+    if (explicitHeaderTenant) {
+      tenantId = explicitHeaderTenant;
+    } else {
+      // 3. Fallback to localStorage active company
+      tenantId = 
+        localStorage.getItem('active_company_id') || 
+        localStorage.getItem('tenant_id');
     }
+
+    // ❌ REMOVED: Step 4 deep-scan loop that was grabbing old/wrong UUIDs from localStorage!
 
     if (token) {
       headers['Authorization'] = `Bearer ${token.trim()}`;

@@ -1,8 +1,6 @@
-// C:\Users\allan.muyesu\Desktop\my-app\components\DocumentContentArea.tsx
-
 'use client';
 import { useState, useEffect, useMemo, useRef, MouseEvent, KeyboardEvent } from 'react';
-import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye, Check } from 'lucide-react';
+import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye, Check, Trash2, Edit } from 'lucide-react';
 import { fetchFolderContents, FolderItem, createSubCompany, createCabinet, createFolderItem } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
 import ContextMenu from './ContextMenu';
@@ -30,6 +28,7 @@ interface ContentItem {
   size?: string;
   created_by?: string;
   primary_color?: string;
+  is_pinned?: boolean;
   current_version?: {
     file?: string;
   };
@@ -61,11 +60,14 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
   const [typedPathString, setTypedPathString] = useState<string>('');
 
-  // Inline create
+  // Inline create & rename states
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [newItemName, setNewItemName] = useState<string>('');
   const [savingNew, setSavingNew] = useState<boolean>(false);
   const newItemInputRef = useRef<HTMLInputElement>(null);
+
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemName, setEditingItemName] = useState<string>('');
 
   const itemId = selectedItem?.id;
   const itemType = selectedItem?.type || 'folder';
@@ -100,7 +102,6 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
   }, [selectedItem]);
 
-  // FIX: Properly handle path hierarchy & tree traversal without blindly appending
   useEffect(() => {
     if (!selectedItem || selectedItem.id === 'default-folder-id') {
       setBreadcrumbPath([]);
@@ -108,13 +109,11 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
 
     setBreadcrumbPath((prevPath) => {
-      // 1. If item already exists in current path, truncate down to it
       const existingIndex = prevPath.findIndex((p) => p.id === selectedItem.id);
       if (existingIndex !== -1) {
         return prevPath.slice(0, existingIndex + 1);
       }
 
-      // 2. If item contains path segments from tree selection, reconstruct path
       if ((selectedItem as any).pathSegments && (selectedItem as any).idPath) {
         const segments: string[] = (selectedItem as any).pathSegments;
         const ids: string[] = (selectedItem as any).idPath;
@@ -125,18 +124,16 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
         }));
       }
 
-      // 3. Direct drill-down: check if current selectedItem is inside the current list view
       const isDirectChild = contents.some((c) => c.id === selectedItem.id);
       if (isDirectChild) {
         return [...prevPath, selectedItem];
       }
 
-      // 4. Fallback for jump navigation: reset path to the selected item
       return [selectedItem];
     });
   }, [selectedItem]);
 
-const loadContents = async () => {
+  const loadContents = async () => {
     if (!itemId || itemId === 'default-folder-id') {
       setContents([]);
       setLoading(false);
@@ -163,10 +160,10 @@ const loadContents = async () => {
           created_at: f.created_at ? String(f.created_at) : undefined,
           created_by: f.created_by ? String(f.created_by) : undefined,
           primary_color: f.primary_color ? String(f.primary_color) : undefined,
+          is_pinned: Boolean(f.is_pinned),
         };
       });
 
-      // RESTRICTION: Only load/display documents if the current view is a folder
       let documentsList: ContentItem[] = [];
       if (itemType === 'folder') {
         documentsList = (data.documents || []).map((d: Record<string, unknown>) => ({
@@ -182,6 +179,7 @@ const loadContents = async () => {
           folder: d.folder ? String(d.folder) : undefined,
           size: d.size ? String(d.size) : undefined,
           created_by: d.created_by ? String(d.created_by) : undefined,
+          is_pinned: Boolean(d.is_pinned),
           current_version: d.current_version as { file?: string } | undefined,
         }));
       }
@@ -203,16 +201,87 @@ const loadContents = async () => {
     await loadContents();
   };
 
-  const toggleMenu = (id: string, e: MouseEvent<HTMLElement>) => {
+  const handleItemContextMenu = (e: MouseEvent<HTMLDivElement>, item: ContentItem) => {
+    e.preventDefault();
     e.stopPropagation();
-    setActiveMenuId(activeMenuId === id ? null : id);
+    setContextMenuPos({ x: e.clientX, y: e.clientY, item: item });
   };
 
-  const handleContextMenu = (e: MouseEvent<HTMLDivElement>, item?: ContentItem) => {
+  const handleAreaContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     if (!itemId || itemId === 'default-folder-id') return;
-    setContextMenuPos({ x: e.clientX, y: e.clientY, item: item || null });
+    setContextMenuPos({ x: e.clientX, y: e.clientY, item: { id: itemId, name: currentName, type: itemType } });
+  };
+
+  const handleTogglePin = async (item: ContentItem, e: MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    try {
+      await apiCall(`/v1/documents/documents/${item.id}/pin/`, {
+        method: 'POST',
+        requiresAuth: true,
+      });
+      await loadContents();
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle pin status.');
+    }
+  };
+
+  const handleRenameSubmit = async (item: ContentItem) => {
+    const newName = editingItemName.trim();
+    if (!newName) return;
+
+    try {
+      let endpoint = '';
+      if (item.type === 'file') {
+        endpoint = `/v1/documents/documents/${item.id}/`;
+      } else if (item.type === 'folder' || item.type === 'cabinet') {
+        endpoint = `/v1/documents/folders/${item.id}/`;
+      } else if (item.type === 'sub_company' || item.type === 'mother_company') {
+        endpoint = `/v1/tenants/tenants/${item.id}/`;
+      }
+
+      if (endpoint) {
+        await apiCall(endpoint, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: newName }),
+          requiresAuth: true,
+        });
+      }
+      setEditingItemId(null);
+      await loadContents();
+    } catch (err: any) {
+      alert(err.message || 'Failed to rename item.');
+    }
+  };
+
+  const handleDeleteItem = async (item: ContentItem, e: MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+
+    try {
+      let endpoint = '';
+      if (item.type === 'file') {
+        endpoint = `/v1/documents/documents/${item.id}/`;
+      } else if (item.type === 'folder' || item.type === 'cabinet') {
+        endpoint = `/v1/documents/folders/${item.id}/`;
+      } else if (item.type === 'sub_company') {
+        endpoint = `/v1/tenants/tenants/${item.id}/`;
+      }
+
+      if (endpoint) {
+        await apiCall(endpoint, {
+          method: 'DELETE',
+          requiresAuth: true,
+        });
+      }
+      await loadContents();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete item.');
+    }
   };
 
   const handleBreadcrumbClick = (item: FolderItem) => {
@@ -223,31 +292,6 @@ const loadContents = async () => {
 
   const handleResetHome = () => {
     setBreadcrumbPath([]);
-  };
-
-  const handlePathInputSubmit = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const trimmed = typedPathString.trim();
-      if (!trimmed) {
-        setIsEditingPath(false);
-        return;
-      }
-      
-      const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean);
-      const matchedItem = breadcrumbPath.find(p => p.name.toLowerCase() === segments[segments.length - 1]?.toLowerCase());
-      
-      if (matchedItem && onSelectItem) {
-        onSelectItem(matchedItem);
-      } else {
-        const foundInCurrent = contents.find(c => c.name.toLowerCase() === segments[segments.length - 1]?.toLowerCase());
-        if (foundInCurrent && onSelectItem) {
-          onSelectItem(foundInCurrent as FolderItem);
-        }
-      }
-      setIsEditingPath(false);
-    } else if (e.key === 'Escape') {
-      setIsEditingPath(false);
-    }
   };
 
   const resolveFileUrl = (fileUrl: string) => {
@@ -266,31 +310,20 @@ const loadContents = async () => {
     }
 
     setPreviewFile(item);
-
     try {
-      const docData = await apiCall(`/v1/documents/documents/${item.id}/`, {
-        method: 'GET',
-        requiresAuth: true,
-      });
-
+      const docData = await apiCall(`/v1/documents/documents/${item.id}/`, { method: 'GET', requiresAuth: true });
       const rawFileUrl = docData?.current_version?.file || docData?.file || item.current_version?.file || item.file;
-      if (!rawFileUrl) {
-        throw new Error('No valid file source found for this document.');
-      }
-
+      if (!rawFileUrl) throw new Error('No valid file source found.');
+      
       const targetUrl = resolveFileUrl(rawFileUrl);
       const token = typeof window !== 'undefined' ? (localStorage.getItem('access_token') || localStorage.getItem('access')) : null;
-      
-      const res = await fetch(targetUrl, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-
-      if (!res.ok) throw new Error('Failed to load document preview binary');
+      const res = await fetch(targetUrl, { headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error('Failed to load preview');
 
       const blob = await res.blob();
       setPreviewUrl(window.URL.createObjectURL(blob));
     } catch (err) {
-      console.error('Failed to load preview:', err);
+      console.error('Preview error:', err);
     }
   };
 
@@ -303,25 +336,13 @@ const loadContents = async () => {
     }
 
     try {
-      const docData = await apiCall(`/v1/documents/documents/${item.id}/`, {
-        method: 'GET',
-        requiresAuth: true,
-      });
-
+      const docData = await apiCall(`/v1/documents/documents/${item.id}/`, { method: 'GET', requiresAuth: true });
       const rawFileUrl = docData?.current_version?.file || docData?.file || item.current_version?.file || item.file;
-      if (!rawFileUrl) {
-        throw new Error('Download URL not found.');
-      }
+      if (!rawFileUrl) throw new Error('Download URL not found.');
 
       const targetUrl = resolveFileUrl(rawFileUrl);
       const token = typeof window !== 'undefined' ? (localStorage.getItem('access_token') || localStorage.getItem('access')) : null;
-      
-      const res = await fetch(targetUrl, {
-        headers: {
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        }
-      });
-
+      const res = await fetch(targetUrl, { headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
       if (!res.ok) throw new Error('Download failed');
 
       const blob = await res.blob();
@@ -333,9 +354,8 @@ const loadContents = async () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(blobUrl);
-    } catch (err: unknown) {
-      const errorObject = err as Error;
-      alert(errorObject.message || 'Failed to download document.');
+    } catch (err: any) {
+      alert(err.message || 'Download failed.');
     }
   };
 
@@ -369,32 +389,16 @@ const loadContents = async () => {
 
     try {
       setSavingNew(true);
-
-      if (itemType === 'mother_company') {
-        await createSubCompany(name, itemId);
-      } else if (itemType === 'sub_company') {
-        await createCabinet(name, itemId);
-      } else {
-        await createFolderItem(name, itemId, itemType === 'cabinet' ? 'cabinet' : 'folder');
-      }
+      if (itemType === 'mother_company') await createSubCompany(name, itemId);
+      else if (itemType === 'sub_company') await createCabinet(name, itemId);
+      else await createFolderItem(name, itemId, itemType === 'cabinet' ? 'cabinet' : 'folder');
 
       cancelInlineCreate();
       await loadContents();
-    } catch (err: unknown) {
-      const errorObject = err as Error;
-      alert(errorObject.message || 'Failed to create item.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to create item.');
     } finally {
       setSavingNew(false);
-    }
-  };
-
-  const handleNewItemKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      submitInlineCreate();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelInlineCreate();
     }
   };
 
@@ -402,7 +406,6 @@ const loadContents = async () => {
     return contents.filter((item) => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
       const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
-      
       if (typeFilter === 'all') return matchesSearch;
       if (typeFilter === 'file') return matchesSearch && (resolvedType === 'file' || item.file_type);
       if (typeFilter === 'folder') return matchesSearch && resolvedType === 'folder';
@@ -413,86 +416,41 @@ const loadContents = async () => {
   const currentName = selectedItem?.name || 'Select a folder';
   const currentTypeLabel = itemType ? itemType.replace('_', ' ').toUpperCase() : 'DIRECTORY';
 
+  // Determine target item details for context menu operations (like templates)
+  const activeTargetId = contextMenuPos?.item?.id || itemId;
+  const activeTargetType = contextMenuPos?.item?.type || itemType;
+
   return (
     <div className="flex-1 flex h-[calc(100vh-4rem)] overflow-hidden">
       <main 
         className="flex-1 bg-gray-50 flex flex-col overflow-y-auto select-none"
-        onContextMenu={handleContextMenu}
+        onContextMenu={handleAreaContextMenu}
       >
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center text-xs text-gray-500 gap-2 flex-wrap w-full">
-            <span 
-              onClick={handleResetHome} 
-              className="hover:opacity-80 cursor-pointer font-medium"
-              style={{ color: themeColor }}
-            >
+            <span onClick={handleResetHome} className="hover:opacity-80 cursor-pointer font-medium" style={{ color: themeColor }}>
               Home
             </span> 
             {breadcrumbPath.length > 0 && <ChevronRight size={12} className="text-gray-400" />}
-
-            {!isEditingPath ? (
-              <div className="flex items-center gap-2 flex-wrap flex-1">
-                {breadcrumbPath.map((pathItem, index) => {
-                  const isLast = index === breadcrumbPath.length - 1;
-                  return (
-                    <div key={pathItem.id} className="flex items-center gap-2">
-                      <span 
-                        onClick={() => !isLast && handleBreadcrumbClick(pathItem)}
-                        className={`cursor-pointer transition ${
-                          isLast 
-                            ? 'font-semibold cursor-default' 
-                            : 'hover:opacity-80 text-gray-600'
-                        }`}
-                        style={isLast ? { color: themeColor } : {}}
-                      >
-                        {pathItem.name}
-                      </span>
-                      {!isLast && <ChevronRight size={12} className="text-gray-400" />}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 flex-1 max-w-lg">
-                <input 
-                  type="text"
-                  value={typedPathString}
-                  onChange={(e) => setTypedPathString(e.target.value)}
-                  onKeyDown={handlePathInputSubmit}
-                  placeholder="Type path (e.g. Company / Cabinet / Folder) and press Enter..."
-                  autoFocus
-                  className="flex-1 bg-gray-100 border border-gray-300 rounded px-2 py-1 text-xs outline-none text-gray-800"
-                  style={{ borderColor: themeColor }}
-                />
-                <button 
-                  onClick={() => setIsEditingPath(false)}
-                  className="p-1 rounded text-gray-500 hover:bg-gray-200"
-                  title="Cancel"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-
-            {!isEditingPath && (
-              <button 
-                onClick={() => {
-                  setTypedPathString(['Home', ...breadcrumbPath.map(p => p.name)].join(' / '));
-                  setIsEditingPath(true);
-                }}
-                title="Edit path directly"
-                className="ml-auto text-gray-400 hover:text-gray-600 p-1 rounded transition"
-              >
-                <Edit3 size={14} />
-              </button>
-            )}
+            {breadcrumbPath.map((pathItem, index) => {
+              const isLast = index === breadcrumbPath.length - 1;
+              return (
+                <div key={pathItem.id} className="flex items-center gap-2">
+                  <span 
+                    onClick={() => !isLast && handleBreadcrumbClick(pathItem)}
+                    className={`cursor-pointer transition ${isLast ? 'font-semibold cursor-default' : 'hover:opacity-80 text-gray-600'}`}
+                    style={isLast ? { color: themeColor } : {}}
+                  >
+                    {pathItem.name}
+                  </span>
+                  {!isLast && <ChevronRight size={12} className="text-gray-400" />}
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <div 
-          className="mx-6 mt-6 border rounded-lg p-4 flex items-center justify-between relative"
-          style={{ backgroundColor: `${themeColor}08`, borderColor: `${themeColor}30` }}
-        >
+        <div className="mx-6 mt-6 border rounded-lg p-4 flex items-center justify-between" style={{ backgroundColor: `${themeColor}08`, borderColor: `${themeColor}30` }}>
           <div className="flex items-center gap-3">
             {itemType === 'mother_company' && <Building style={{ color: themeColor }} size={24} />}
             {itemType === 'sub_company' && <Building2 style={{ color: themeColor }} size={24} />}
@@ -500,13 +458,7 @@ const loadContents = async () => {
             {isFolderLevel && <Folder style={{ color: themeColor }} size={24} />}
             <div>
               <h2 className="text-sm font-bold" style={{ color: themeColor }}>{currentName}</h2>
-              <p className="text-xs opacity-80" style={{ color: themeColor }}>{currentTypeLabel} (Right-click anywhere in workspace for options)</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3" style={{ color: themeColor }}>
-            <Pin size={16} className="cursor-pointer hover:opacity-80" />
-            <div className="relative">
-              <MoreVertical size={18} className="cursor-pointer hover:opacity-80" onClick={(e) => toggleMenu('header-menu', e)} />
+              <p className="text-xs opacity-80" style={{ color: themeColor }}>{currentTypeLabel}</p>
             </div>
           </div>
         </div>
@@ -519,247 +471,97 @@ const loadContents = async () => {
           onUploadComplete={loadContents}
         />
 
-        <div className="mx-6 mt-4 flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-2.5">
-          <div className="flex items-center gap-3 w-72">
-            <SlidersHorizontal size={14} className="text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Filter by name..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="text-xs bg-transparent outline-none w-full text-gray-700" 
-            />
-          </div>
-          <div className="flex items-center gap-4 text-xs text-gray-500">
-            <div className="flex items-center gap-1 border border-gray-200 rounded px-2 py-1">
-              <select 
-                value={typeFilter} 
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="bg-transparent outline-none text-xs text-gray-600 cursor-pointer"
-              >
-                <option value="all">All Types</option>
-                <option value="file">Files</option>
-                <option value="folder">Folders</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded">
-              <button 
-                title="Grid View"
-                onClick={() => setViewMode('grid')}
-                className={`p-1 rounded transition ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
-              >
-                <LayoutGrid size={14} style={{ color: viewMode === 'grid' ? themeColor : '#9CA3AF' }} />
-              </button>
-              <button 
-                title="Compact View"
-                onClick={() => setViewMode('compact')}
-                className={`p-1 rounded transition ${viewMode === 'compact' ? 'bg-white shadow-sm' : ''}`}
-              >
-                <Columns size={14} style={{ color: viewMode === 'compact' ? themeColor : '#9CA3AF' }} />
-              </button>
-              <button 
-                title="Details View"
-                onClick={() => setViewMode('details')}
-                className={`p-1 rounded transition ${viewMode === 'details' ? 'bg-white shadow-sm' : ''}`}
-              >
-                <List size={14} style={{ color: viewMode === 'details' ? themeColor : '#9CA3AF' }} />
-              </button>
-            </div>
-            <span className="font-medium text-gray-700">({filteredContents.length} items)</span>
-          </div>
-        </div>
-
         <div className="mx-6 mt-3 mb-6 bg-white border border-gray-200 rounded-lg shadow-sm">
-          {loading && (
-            <div className="flex items-center justify-center py-10 text-gray-400 gap-2 text-xs">
-              <Loader2 size={16} className="animate-spin" style={{ color: themeColor }} /> Loading contents...
-            </div>
-          )}
+          <div className="divide-y divide-gray-100">
+            {filteredContents.map((item) => {
+              const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
+              const isFile = resolvedType === 'file' || item.file_type || item.reference_no;
+              const isEditing = editingItemId === item.id;
+              const selectableItem = { ...item, type: resolvedType };
 
-          {error && (
-            <p className="text-xs text-red-500 bg-red-50 p-4 rounded text-center">{error}</p>
-          )}
-
-          {!loading && !error && filteredContents.length === 0 && !isCreating && (
-            <p className="text-xs text-gray-400 text-center py-8">No matching contents found.</p>
-          )}
-
-          {!loading && !error && viewMode === 'details' ? (
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50/70 text-gray-500 font-medium">
-                  <th className="py-2.5 px-4">Name</th>
-                  <th className="py-2.5 px-4">Type</th>
-                  <th className="py-2.5 px-4">Date Created</th>
-                  <th className="py-2.5 px-4">Date Modified</th>
-                  <th className="py-2.5 px-4">Size</th>
-                  <th className="py-2.5 px-4">Created By</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isCreating && (
-                  <tr style={{ backgroundColor: `${themeColor}10` }}>
-                    <td className="py-2 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <Folder size={16} className="text-gray-400 shrink-0" />
-                        <input
-                          ref={newItemInputRef}
-                          value={newItemName}
-                          disabled={savingNew}
-                          onChange={(e) => setNewItemName(e.target.value)}
-                          onKeyDown={handleNewItemKeyDown}
-                          className="text-xs font-semibold text-gray-800 border rounded px-2 py-1 outline-none w-64"
+              return (
+                <div 
+                  key={item.id} 
+                  onContextMenu={(e) => handleItemContextMenu(e, item)}
+                  onClick={(e) => {
+                    if (isEditing) return;
+                    if (isFile) handlePreview(item, e);
+                    else onSelectItem && onSelectItem(selectableItem);
+                  }}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    {isFile ? <FileText size={18} className="text-blue-500" /> : <Folder size={18} className="text-gray-400" />}
+                    
+                    {isEditing ? (
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <input 
+                          type="text"
+                          value={editingItemName}
+                          onChange={(e) => setEditingItemName(e.target.value)}
+                          className="border rounded px-2 py-1 text-xs outline-none"
                           style={{ borderColor: themeColor }}
+                          autoFocus
                         />
-                        <button onClick={cancelInlineCreate} className="text-gray-400 hover:text-gray-600" title="Cancel">
-                          <X size={14} />
-                        </button>
-                        <button
-                          onClick={submitInlineCreate}
-                          disabled={savingNew || !newItemName.trim()}
-                          className="text-xs font-semibold disabled:opacity-40 flex items-center gap-1"
-                          style={{ color: themeColor }}
-                        >
-                          {savingNew ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
-                        </button>
+                        <button onClick={() => handleRenameSubmit(item)} className="text-xs font-semibold" style={{ color: themeColor }}><Check size={14} /></button>
+                        <button onClick={() => setEditingItemId(null)} className="text-gray-400"><X size={14} /></button>
                       </div>
-                    </td>
-                    <td className="py-2 px-4 text-gray-500">{childKindLabel}</td>
-                    <td className="py-2 px-4 text-gray-400">—</td>
-                    <td className="py-2 px-4 text-gray-400">—</td>
-                    <td className="py-2 px-4 text-gray-400">—</td>
-                    <td className="py-2 px-4 text-gray-400">—</td>
-                  </tr>
-                )}
-                {filteredContents.map((item) => {
-                  const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
-                  const isFile = resolvedType === 'file' || item.file_type || item.reference_no;
-                  const selectableItem = { ...item, type: resolvedType };
-
-                  return (
-                    <tr 
-                      key={item.id}
-                      onClick={(e) => {
-                        if (isFile) {
-                          handlePreview(item, e);
-                        } else {
-                          onSelectItem && onSelectItem(selectableItem);
-                        }
-                      }}
-                      className="hover:bg-gray-50 cursor-pointer group"
-                    >
-                      <td className="py-3 px-4 flex items-center gap-2.5">
-                        {isFile ? <FileText size={16} className="text-blue-500 shrink-0" /> : <Folder size={16} className="text-gray-400 shrink-0" />}
-                        <span className="font-semibold text-gray-800">{item.name}</span>
-                      </td>
-                      <td className="py-3 px-4 text-gray-500 capitalize">{resolvedType}</td>
-                      <td className="py-3 px-4 text-gray-500">{item.created_at ? new Date(item.created_at).toLocaleDateString() : (item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '-')}</td>
-                      <td className="py-3 px-4 text-gray-500">{item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '-'}</td>
-                      <td className="py-3 px-4 text-gray-500">{item.size || '-'}</td>
-                      <td className="py-3 px-4 text-gray-500">{item.created_by || '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {isCreating && (
-                <div className="flex items-center gap-3 px-4 py-3" style={{ backgroundColor: `${themeColor}10` }}>
-                  <Folder size={18} className="text-gray-400" />
-                  <input
-                    ref={newItemInputRef}
-                    value={newItemName}
-                    disabled={savingNew}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    onKeyDown={handleNewItemKeyDown}
-                    className="text-xs font-semibold text-gray-800 border rounded px-2 py-1 outline-none w-64"
-                    style={{ borderColor: themeColor }}
-                  />
-                  <button
-                    onClick={submitInlineCreate}
-                    disabled={savingNew || !newItemName.trim()}
-                    className="text-xs font-semibold disabled:opacity-40 flex items-center gap-1"
-                    style={{ color: themeColor }}
-                  >
-                    {savingNew ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
-                  </button>
-                  <button onClick={cancelInlineCreate} className="text-gray-400 hover:text-gray-600" title="Cancel">
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-              {!loading && !error && filteredContents.map((item) => {
-                const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
-                const isMotherCompany = resolvedType === 'mother_company';
-                const isSubCompany = resolvedType === 'sub_company';
-                const isCabinet = resolvedType === 'cabinet';
-                const isFile = resolvedType === 'file' || item.file_type || item.reference_no;
-
-                const selectableItem = {
-                  ...item,
-                  type: resolvedType
-                };
-
-                return (
-                  <div 
-                    key={item.id} 
-                    onClick={(e) => {
-                      if (isFile) {
-                        handlePreview(item, e);
-                      } else {
-                        onSelectItem && onSelectItem(selectableItem);
-                      }
-                    }}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      {isMotherCompany && <Building size={18} style={{ color: themeColor }} />}
-                      {isSubCompany && <Building2 size={18} style={{ color: themeColor }} />}
-                      {isCabinet && <div className="w-2.5 h-2.5 rounded-full ml-1" style={{ backgroundColor: themeColor }} />}
-                      {isFile && <FileText size={18} className="text-blue-500" />}
-                      {!isMotherCompany && !isSubCompany && !isCabinet && !isFile && <Folder size={18} className="text-gray-400" />}
-                      <div>
-                        <p className="text-xs font-semibold text-gray-800">{item.name}</p>
-                        <p className="text-[10px] text-gray-400">
-                          {item.updated_at ? new Date(item.updated_at).toLocaleDateString() : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    {isFile && (
-                      <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                        {(hasPermission('view_document') || hasPermission('change_document')) && (
-                          <button 
-                            onClick={(e) => handlePreview(item, e)}
-                            title="Preview Document"
-                            className="p-1.5 rounded-md transition flex items-center gap-1 text-xs hover:bg-gray-100"
-                            style={{ color: themeColor }}
-                          >
-                            <Eye size={15} />
-                          </button>
-                        )}
-                        {(hasPermission('download_document') || hasPermission('view_document')) && (
-                          <button 
-                            onClick={(e) => handleDownload(item, e)}
-                            title="Download Document"
-                            className="p-1.5 rounded-md transition flex items-center gap-1 text-xs hover:bg-gray-100"
-                            style={{ color: themeColor }}
-                          >
-                            <Download size={15} />
-                          </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800">{item.name}</p>
+                          <p className="text-[10px] text-gray-400">{item.updated_at ? new Date(item.updated_at).toLocaleDateString() : ''}</p>
+                        </div>
+                        {isFile && item.is_pinned && (
+                          <Pin size={13} className="text-amber-500 fill-amber-500 rotate-45" />
                         )}
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <div className="flex items-center gap-1.5 opacity-90 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+                    {isFile && (
+                      <button 
+                        onClick={(e) => handleTogglePin(item, e)} 
+                        title={item.is_pinned ? "Unpin document" : "Pin document"} 
+                        className={`p-1.5 rounded-md hover:bg-gray-100 ${item.is_pinned ? 'text-amber-500 bg-amber-50' : 'text-gray-400'}`}
+                      >
+                        <Pin size={15} className={item.is_pinned ? "fill-amber-500 rotate-45" : ""} />
+                      </button>
+                    )}
+                    {isFile && (
+                      <button onClick={(e) => handlePreview(item, e)} title="Preview" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-600">
+                        <Eye size={15} />
+                      </button>
+                    )}
+                    {isFile && (
+                      <button onClick={(e) => handleDownload(item, e)} title="Download" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-600">
+                        <Download size={15} />
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => { setEditingItemId(item.id); setEditingItemName(item.name); }} 
+                      title="Rename" 
+                      className="p-1.5 rounded-md hover:bg-gray-100 text-blue-600"
+                    >
+                      <Edit size={15} />
+                    </button>
+                    <button 
+                      onClick={(e) => handleDeleteItem(item, e)} 
+                      title="Delete" 
+                      className="p-1.5 rounded-md hover:bg-gray-100 text-rose-600"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </main>
 
-      {contextMenuPos && itemId && (
+      {contextMenuPos && (
         <ContextMenu 
           x={contextMenuPos.x} 
           y={contextMenuPos.y} 
@@ -773,17 +575,19 @@ const loadContents = async () => {
         />
       )}
 
-      {itemId && (
+      {/* FOLDER TEMPLATE MODAL */}
+      {activeTargetId && (
         <FolderTemplateModal 
           isOpen={isTemplateModalOpen}
           onClose={() => setIsTemplateModalOpen(false)}
-          targetId={itemId}
-          targetType={itemType}
+          targetId={activeTargetId}
+          targetType={activeTargetType}
           themeColor={themeColor}
           onSuccess={handleTemplateSuccess}
         />
       )}
 
+      {/* PREVIEW SIDEBAR */}
       {previewFile && (
         <aside className="w-[480px] bg-white border-l border-gray-200 flex flex-col shadow-xl z-20">
           <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">

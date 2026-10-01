@@ -245,30 +245,54 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
   // 📤 Handle uploading the filled employee Excel file
   // 📤 Handle uploading the filled employee Excel file using apiCall
 // 📤 Handle uploading the filled employee Excel file using apiCall
-  const handleUploadEmployeeFile = async (e: React.ChangeEvent<HTMLInputElement>, departmentId?: string) => {
+  const handleUploadEmployeeFile = async (e: React.ChangeEvent<HTMLInputElement>, item: any, ancestors: any[] = []) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Grab the active tenant ID from local storage 
-    // (Check your app's specific local storage key for the active company/tenant)
-    const activeTenantId = localStorage.getItem('active_company_id') || localStorage.getItem('tenant_id');
-
     const formData = new FormData();
     formData.append('file', file);
-    
-    if (departmentId) {
-      formData.append('department', departmentId);
+
+    // 1. Walk up the item and its ancestors to find the correct sub-company or mother company ID
+    let targetTenantId = null;
+
+    if (item.type === 'mother_company' || item.type === 'sub_company') {
+      targetTenantId = item.id;
+    } else if (item.tenant_id) {
+      targetTenantId = item.tenant_id;
+    } else {
+      // Traverse backwards through ancestors to find the owning company
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const anc = ancestors[i];
+        if (anc.type === 'mother_company' || anc.type === 'sub_company') {
+          targetTenantId = anc.id;
+          break;
+        }
+        if (anc.tenant_id) {
+          targetTenantId = anc.tenant_id;
+          break;
+        }
+      }
     }
-    
-    // Explicitly inject tenant_id into the form data so the backend never guesses wrong
-    if (activeTenantId) {
-      formData.append('tenant_id', activeTenantId);
+
+    // 2. Absolute final fallback if tree hierarchy couldn't be parsed
+    if (!targetTenantId) {
+      targetTenantId = localStorage.getItem('active_company_id') || localStorage.getItem('tenant_id');
+    }
+
+    // 3. If the clicked node is a department, attach its ID so employees map directly to it
+    if (item.folder_type === 'department' || item.type === 'department') {
+      formData.append('department', item.id);
+    }
+
+    if (targetTenantId) {
+      formData.append('tenant_id', String(targetTenantId));
     }
 
     try {
       const result = await apiCall('/v1/hr/employees/bulk-upload/', {
         method: 'POST',
         requiresAuth: true,
+        headers: targetTenantId ? { 'X-Tenant-ID': String(targetTenantId) } : undefined,
         body: formData, 
       });
 
@@ -381,7 +405,7 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
             id={`bulk-upload-input-${item.id}`}
             style={{ display: 'none' }}
             accept=".xlsx, .xls, .csv"
-            onChange={(e) => handleUploadEmployeeFile(e, item.folder_type === 'department' ? item.id : undefined)}
+            onChange={(e) => handleUploadEmployeeFile(e, item, ancestors)}
           />
 
           <div

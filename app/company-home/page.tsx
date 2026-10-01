@@ -15,7 +15,8 @@ import {
   ArrowUpRight, 
   ShieldAlert,
   Loader2,
-  Menu
+  Menu,
+  HardDrive
 } from 'lucide-react';
 
 interface SubCompany {
@@ -23,6 +24,8 @@ interface SubCompany {
   name: string;
   departments_count?: number;
   employee_count?: number;
+  storage_used_gb?: number;
+  storage_quota_gb?: number;
 }
 
 interface CompanyHomeStats {
@@ -31,6 +34,8 @@ interface CompanyHomeStats {
   totalDepartments: number;
   totalEmployees: number;
   expiringContractsCount: number;
+  totalStorageUsed: number;
+  totalStorageQuota: number;
   subCompanies: SubCompany[];
   expiringContracts: ExpiringEmployee[];
 }
@@ -47,6 +52,8 @@ export default function CompanyHomePage() {
     totalDepartments: 0,
     totalEmployees: 0,
     expiringContractsCount: 0,
+    totalStorageUsed: 0,
+    totalStorageQuota: 100,
     subCompanies: [],
     expiringContracts: [],
   });
@@ -56,7 +63,7 @@ export default function CompanyHomePage() {
       try {
         setLoading(true);
         
-        // 1. Fetch holding-level data using the default active mother company context
+        // 1. Fetch holding-level data and sub-tenants from API
         const [currentTenantData, tenantNodesData, deptData, empData, expiringContractsData] = await Promise.all([
           apiCall('/v1/tenants/tenants/current/', { requiresAuth: true }).catch(() => null),
           apiCall('/v1/tenants/tenants/', { requiresAuth: true }).catch(() => null),
@@ -67,6 +74,10 @@ export default function CompanyHomePage() {
 
         const tenantObj = Array.isArray(currentTenantData) ? currentTenantData[0] : currentTenantData?.results?.[0] || currentTenantData;
         const motherName = tenantObj?.name || localStorage.getItem('tenant_name') || 'Holding Group';
+        
+        // Extract total storage metrics from the root/current tenant response
+        const totalStorageUsed = tenantObj?.storage_used_gb || 0;
+        const totalStorageQuota = tenantObj?.storage_quota_gb || 100;
 
         const tenantsArray = Array.isArray(tenantNodesData) ? tenantNodesData : tenantNodesData?.results || [];
         const deptsArray: Department[] = Array.isArray(deptData) ? deptData : deptData?.results || [];
@@ -75,7 +86,7 @@ export default function CompanyHomePage() {
         const subTenants = tenantsArray.filter((t: any) => t.type === 'sub_company' || (t.parent && t.parent !== t.id));
         const effectiveSubComps = subTenants.length > 0 ? subTenants : tenantsArray;
 
-        // 2. Map through each sub-company and match them using their tenant ID
+        // 2. Map through each sub-company and aggregate workforce, departments, and storage
         const processedSubCompanies: SubCompany[] = effectiveSubComps.map((t: any) => {
           const tenantIdStr = String(t.id);
 
@@ -94,6 +105,8 @@ export default function CompanyHomePage() {
             name: t.name || 'Sub Company',
             employee_count: subEmps.length,
             departments_count: subDepts.length,
+            storage_used_gb: t.storage_used_gb || 0,
+            storage_quota_gb: t.storage_quota_gb || 100,
           };
         });
 
@@ -103,6 +116,8 @@ export default function CompanyHomePage() {
           totalDepartments: deptsArray.length,
           totalEmployees: empsArray.length,
           expiringContractsCount: expiringContractsData.length,
+          totalStorageUsed,
+          totalStorageQuota,
           subCompanies: processedSubCompanies,
           expiringContracts: expiringContractsData,
         });
@@ -128,6 +143,8 @@ export default function CompanyHomePage() {
       </div>
     );
   }
+
+  const storagePercentage = Math.min(Math.round((stats.totalStorageUsed / (stats.totalStorageQuota || 100)) * 100), 100);
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -157,7 +174,7 @@ export default function CompanyHomePage() {
               </div>
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{stats.motherCompanyName}</h1>
               <p className="text-sm text-gray-500 mt-1">
-                Comprehensive breakdown of structural sub-units, departments, workforce distribution, and contract timelines.
+                Comprehensive breakdown of structural sub-units, departments, workforce distribution, and enterprise storage usage.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -228,22 +245,27 @@ export default function CompanyHomePage() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between border-l-4 border-l-rose-500">
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Action Required</span>
-                <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600">
-                  <AlertTriangle size={20} />
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Storage Usage</span>
+                <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600">
+                  <HardDrive size={20} />
                 </div>
               </div>
               <div className="mt-4">
-                <h3 className="text-3xl font-extrabold text-rose-600">{stats.expiringContractsCount}</h3>
-                <p className="text-sm font-medium text-gray-600 mt-1">Contracts Expiring (1 Month)</p>
+                <h3 className="text-3xl font-extrabold text-gray-900">
+                  {stats.totalStorageUsed} <span className="text-sm font-normal text-gray-500">GB / {stats.totalStorageQuota} GB</span>
+                </h3>
+                <div className="w-full bg-gray-100 rounded-full h-2 mt-2">
+                  <div 
+                    className="bg-indigo-600 h-2 rounded-full transition-all duration-500" 
+                    style={{ width: `${storagePercentage}%` }}
+                  />
+                </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-50 text-xs flex justify-between">
-                <span className="text-gray-500">Review status</span>
-                <a href="/expiring-contracts" className="font-semibold text-rose-600 hover:underline inline-flex items-center gap-1">
-                  View <ArrowUpRight size={12} />
-                </a>
+              <div className="mt-4 pt-4 border-t border-gray-50 text-xs text-gray-500 flex justify-between">
+                <span>Hierarchy Total</span>
+                <span className="font-semibold text-indigo-600">{storagePercentage}% Used</span>
               </div>
             </div>
           </div>
@@ -251,7 +273,7 @@ export default function CompanyHomePage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm lg:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-gray-900">Sub-Companies & Department Distribution</h3>
+                <h3 className="text-base font-bold text-gray-900">Sub-Companies, Departments & Storage</h3>
                 <span className="text-xs text-gray-500 font-medium">{stats.subCompanies.length} Units</span>
               </div>
 
@@ -270,9 +292,12 @@ export default function CompanyHomePage() {
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-800 text-xs font-semibold">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-800 text-xs font-semibold">
                           {comp.employee_count || 0} Employees
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">
+                          {comp.storage_used_gb || 0} GB
                         </span>
                       </div>
                     </div>

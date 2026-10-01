@@ -17,7 +17,8 @@ import {
   ChevronRight, 
   LogOut,
   Sparkles,
-  Users // Added icon for expiring contracts
+  Users, // Added icon for expiring contracts
+  Building2
 } from 'lucide-react';
 
 interface TenantData {
@@ -71,6 +72,7 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
     
     { name: 'Home', href: '/company-home', icon: Home },
     { name: 'Documents', href: '/documents', icon: FolderKanban },
+    { name: 'Sub Companies', href: '/sub-companies', icon: Building2 },
     { name: 'Document Requests', href: '/document-requests', icon: FileCheck },
     { name: 'Expiring Contracts', href: '/expiring-contracts', icon: Users },
     { name: 'Folder Template', href: '/folder-template', icon: Layers },

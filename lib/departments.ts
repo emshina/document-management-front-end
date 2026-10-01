@@ -9,14 +9,20 @@ export interface Department {
 }
 
 /**
- * Fetches all departments available in the current tenant scope.
- * Handles both paginated arrays and direct response lists.
+ * Fetches departments explicitly scoped to a target tenant/mother company ID.
+ * Exported as `fetchDepartments` to match your page imports.
  */
-export async function fetchDepartments(): Promise<Department[]> {
+export async function fetchDepartments(tenantId?: string): Promise<Department[]> {
   try {
+    const headers: Record<string, string> = {};
+    if (tenantId) {
+      headers['X-Tenant-ID'] = tenantId;
+    }
+
     const response = await apiCall('/v1/hr/departments/', {
       requiresAuth: true,
       method: 'GET',
+      headers,
     });
 
     return Array.isArray(response) ? response : response?.results || [];
@@ -25,6 +31,9 @@ export async function fetchDepartments(): Promise<Department[]> {
     throw error;
   }
 }
+
+// Keep an alias export just in case other files use this name
+export const fetchDepartmentsByTenant = fetchDepartments;
 
 /**
  * Fetches all documents inside a specific department's registry folder.
