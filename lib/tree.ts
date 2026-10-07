@@ -1,5 +1,22 @@
 export type NodeType = "mother_company" | "sub_company" | "cabinet" | "folder" | "file";
 
+// export interface TreeNodeItem {
+//   id: string;
+//   name: string;
+//   type: NodeType;
+//   children?: TreeNodeItem[];
+//   files?: TreeNodeItem[];
+//   updated_at?: string;
+//   size?: string;
+// }
+
+export interface PlanInfo {
+  id: number;
+  name: string;
+  allow_sub_companies: boolean;
+  max_sub_companies?: number;
+}
+
 export interface TreeNodeItem {
   id: string;
   name: string;
@@ -8,7 +25,11 @@ export interface TreeNodeItem {
   files?: TreeNodeItem[];
   updated_at?: string;
   size?: string;
+  // ── Add these optional properties ──
+  plan?: PlanInfo;
+  allow_sub_companies?: boolean;
 }
+
 
 export interface SelectedNode {
   item: TreeNodeItem;

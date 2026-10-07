@@ -1,3 +1,4 @@
+'use client';
 import { apiCall } from '@/lib/api';
 
 export interface FolderItem {
@@ -90,55 +91,14 @@ async function fetchAllPaginated(endpoint: string) {
   return results;
 }
 
-// 1. Fetch the complete 4-tier tree: Mother Company -> Sub-Companies -> Cabinets -> Folders
+// 1. Fetch the complete 4-tier tree from the optimized backend endpoint
 export async function fetchFolderTree(): Promise<MotherCompanyItem[]> {
-  const [tenants, cabinets, folders] = await Promise.all([
-    fetchAllPaginated('/api/v1/tenants/tenants/'),
-    fetchAllPaginated('/api/v1/documents/cabinets/'),
-    fetchAllPaginated('/api/v1/documents/folders/'),
-  ]);
-
-  const motherCompanies = tenants.filter((t: any) => !t.parent);
-  const subCompanies = tenants.filter((t: any) => t.parent);
-
-  const buildFolderTree = (parentId: string | null, cabinetId: string): FolderItem[] => {
-    return folders
-      .filter((f: any) => f.cabinet === cabinetId && (parentId === null ? !f.parent : f.parent === parentId))
-      .map((folder: any) => ({
-        id: folder.id,
-        name: folder.name,
-        type: 'folder' as const,
-        path: folder.path,
-        folder_type: folder.folder_type,
-        is_locked: folder.is_locked,
-        children: buildFolderTree(folder.id, cabinetId),
-      }));
-  };
-
-  return motherCompanies.map((mother: any) => {
-    const childrenSubs = subCompanies.filter((sub: any) => sub.parent === mother.id);
-
-    return {
-      id: mother.id,
-      name: mother.name,
-      type: 'mother_company' as const,
-      children: childrenSubs.map((sub: any) => {
-        const subCabinets = cabinets.filter((cab: any) => cab.owner === sub.id || cab.tenant === sub.id || cab.tenant_id === sub.id);
-
-        return {
-          id: sub.id,
-          name: sub.name,
-          type: 'sub_company' as const,
-          children: subCabinets.map((cab: any) => ({
-            id: cab.id,
-            name: cab.name,
-            type: 'cabinet' as const,
-            children: buildFolderTree(null, cab.id),
-          })),
-        };
-      }),
-    };
+  const response = await apiCall('/api/v1/documents/folders/tree/', {
+    method: 'GET',
+    requiresAuth: true,
   });
+
+  return Array.isArray(response) ? response : [];
 }
 
 // 2. Fetch contents dynamically based on any node type (Mother Company, Sub-Company, Cabinet, or Folder)

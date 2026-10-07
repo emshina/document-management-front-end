@@ -139,11 +139,12 @@ export default function TemplatesListTab() {
   };
 
   // Creating a Template Item (Root or Sub-folder)
-  const handleCreateItem = async (e: React.FormEvent) => {
+const handleCreateItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTemplate) return;
 
     try {
+      // 1. Post the new item
       await apiCall(`/v1/documents/folder-templates/${selectedTemplate.id}/items/`, {
         method: "POST",
         requiresAuth: true,
@@ -159,12 +160,8 @@ export default function TemplatesListTab() {
       setIsItemModalOpen(false);
       setActiveParentItemId(null);
       
-      const updatedList = await apiCall('/v1/documents/folder-templates/', { requiresAuth: true });
-      const templateArray = Array.isArray(updatedList) ? updatedList : (updatedList?.results || []);
-      setTemplates(templateArray);
-      
-      const refreshedCurrent = templateArray.find((t: FolderTemplate) => t.id === selectedTemplate.id);
-      if (refreshedCurrent) setSelectedTemplate(refreshedCurrent);
+      // 2. Fetch fresh list
+      await fetchTemplates();
 
     } catch (err: any) {
       alert(err.message);

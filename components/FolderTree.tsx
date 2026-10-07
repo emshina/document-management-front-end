@@ -437,114 +437,114 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
               )}
             </div>
 
-            {/* Actions menu */}
-            <div className="relative flex-shrink-0" ref={menuOpenId === item.id ? menuRef : undefined}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpenId(menuOpenId === item.id ? null : item.id);
-                }}
-                className="p-0.5 hover:bg-gray-200 rounded text-gray-600 transition opacity-0 group-hover:opacity-100"
-              >
-                <MoreVertical size={13} />
-              </button>
+{/* Actions menu */}
+<div className="relative flex-shrink-0" ref={menuOpenId === item.id ? menuRef : undefined}>
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      setMenuOpenId(menuOpenId === item.id ? null : item.id);
+    }}
+    className="p-0.5 hover:bg-gray-200 rounded text-gray-600 transition opacity-0 group-hover:opacity-100"
+  >
+    <MoreVertical size={13} />
+  </button>
 
-              {menuOpenId === item.id && (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  className="absolute right-0 top-6 z-30 w-52 bg-white border rounded shadow-lg py-1 text-[11px]"
-                >
-                  {isMother && (
-                    <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('sub_company'); setActiveParentItem(item); }}
-                      className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 font-medium"
-                      style={{ color: primaryColor }}
-                    >
-                      <Building size={12} /> Create Sub-Company
-                    </button>
-                  )}
+  {menuOpenId === item.id && (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-0 top-6 z-30 w-52 bg-white border rounded shadow-lg py-1 text-[11px]"
+    >
+{/* Show "Create Sub-Company" if it's the root/mother company (parent is null) AND the plan allows it */}
+{(!item.parent && (item.plan?.allow_sub_companies === true || item.allow_sub_companies === true)) && (
+  <button
+    onClick={() => { setMenuOpenId(null); setCreatingType('sub_company'); setActiveParentItem(item); }}
+    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 font-medium"
+    style={{ color: primaryColor }}
+  >
+    <Building size={12} /> Create Sub-Company
+  </button>
+)}
+      {isSubCompany && (
+        <button
+          onClick={() => { setMenuOpenId(null); setCreatingType('cabinet'); setActiveParentItem(item); }}
+          className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-indigo-700 font-medium"
+        >
+          <Box size={12} /> Create Cabinet
+        </button>
+      )}
 
-                  {isSubCompany && (
-                    <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('cabinet'); setActiveParentItem(item); }}
-                      className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-indigo-700 font-medium"
-                    >
-                      <Box size={12} /> Create Cabinet
-                    </button>
-                  )}
+      {isCabinet && (
+        <button
+          onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
+          className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
+        >
+          <FolderPlus size={12} /> Create Folder
+        </button>
+      )}
 
-                  {isCabinet && (
-                    <button
-                      onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
-                      className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
-                    >
-                      <FolderPlus size={12} /> Create Folder
-                    </button>
-                  )}
+      {isFolder && (
+        <>
+          <button
+            onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
+            className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
+          >
+            <FolderPlus size={12} /> Create Sub-Folder
+          </button>
+          <button
+            onClick={() => { setMenuOpenId(null); onTriggerUpload?.(item.id, 'folder', 'file'); }}
+            className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-blue-700 font-medium"
+          >
+            <Upload size={12} /> Upload File
+          </button>
+          <button
+            onClick={() => { setMenuOpenId(null); onTriggerUpload?.(item.id, 'folder', 'folder'); }}
+            className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-emerald-700 font-medium"
+          >
+            <Upload size={12} /> Upload Folder
+          </button>
+        </>
+      )}
 
-                  {isFolder && (
-                    <>
-                      <button
-                        onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}
-                        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-amber-700 font-medium"
-                      >
-                        <FolderPlus size={12} /> Create Sub-Folder
-                      </button>
-                      <button
-                        onClick={() => { setMenuOpenId(null); onTriggerUpload?.(item.id, 'folder', 'file'); }}
-                        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-blue-700 font-medium"
-                      >
-                        <Upload size={12} /> Upload File
-                      </button>
-                      <button
-                        onClick={() => { setMenuOpenId(null); onTriggerUpload?.(item.id, 'folder', 'folder'); }}
-                        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-emerald-700 font-medium"
-                      >
-                        <Upload size={12} /> Upload Folder
-                      </button>
-                    </>
-                  )}
+      {/* Universal Employee Bulk Template & Upload Options for ALL folders */}
+      <div className="my-1 border-t" />
+      <button
+        onClick={() => { setMenuOpenId(null); handleDownloadEmployeeTemplate(); }}
+        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-purple-700 font-medium"
+      >
+        <FileText size={12} /> Download Employee Template
+      </button>
+      <button
+        onClick={() => {
+          setMenuOpenId(null);
+          document.getElementById(`bulk-upload-input-${item.id}`)?.click();
+        }}
+        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-emerald-700 font-medium"
+      >
+        <Upload size={12} /> Bulk Upload Employees
+      </button>
 
-                  {/* 🚀 Universal Employee Bulk Template & Upload Options for ALL folders */}
-                  <div className="my-1 border-t" />
-                  <button
-                    onClick={() => { setMenuOpenId(null); handleDownloadEmployeeTemplate(); }}
-                    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-purple-700 font-medium"
-                  >
-                    <FileText size={12} /> Download Employee Template
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpenId(null);
-                      document.getElementById(`bulk-upload-input-${item.id}`)?.click();
-                    }}
-                    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-emerald-700 font-medium"
-                  >
-                    <Upload size={12} /> Bulk Upload Employees
-                  </button>
+      <div className="my-1 border-t" />
+      <button
+        onClick={() => { navigator.clipboard?.writeText(meta.slashPath); setMenuOpenId(null); }}
+        className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 font-medium"
+      >
+        <FileText size={12} /> Copy Full Path
+      </button>
 
-                  <div className="my-1 border-t" />
-                  <button
-                    onClick={() => { navigator.clipboard?.writeText(meta.slashPath); setMenuOpenId(null); }}
-                    className="w-full text-left px-2.5 py-1 hover:bg-gray-50 flex items-center gap-1.5 text-gray-700 font-medium"
-                  >
-                    <FileText size={12} /> Copy Full Path
-                  </button>
-
-                  {!isMother && (
-                    <>
-                      <div className="my-1 border-t" />
-                      <button
-                        onClick={(e) => { setMenuOpenId(null); handleDeleteNode(item, e as any); }}
-                        className="w-full text-left px-2.5 py-1 hover:bg-red-50 flex items-center gap-1.5 text-red-600 font-medium"
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+      {!isMother && (
+        <>
+          <div className="my-1 border-t" />
+          <button
+            onClick={(e) => { setMenuOpenId(null); handleDeleteNode(item, e as any); }}
+            className="w-full text-left px-2.5 py-1 hover:bg-red-50 flex items-center gap-1.5 text-red-600 font-medium"
+          >
+            <Trash2 size={12} /> Delete
+          </button>
+        </>
+      )}
+    </div>
+  )}
+</div>
           </div>
 
           {isExpanded && (

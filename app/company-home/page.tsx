@@ -63,30 +63,48 @@ export default function CompanyHomePage() {
       try {
         setLoading(true);
         
-        // 1. Fetch holding-level data and sub-tenants from API
-        const [currentTenantData, tenantNodesData, deptData, empData, expiringContractsData] = await Promise.all([
-          apiCall('/v1/tenants/tenants/current/', { requiresAuth: true }).catch(() => null),
+        // 1. Fetch holding-level data first to resolve the current tenant/mother company
+        const currentTenantData = await apiCall('/v1/tenants/tenants/current/', { requiresAuth: true }).catch(() => null);
+        const tenantObj = Array.isArray(currentTenantData) ? currentTenantData[0] : currentTenantData?.results?.[0] || currentTenantData;
+        const currentTenantId = tenantObj?.id;
+
+        // 2. Fetch remaining enterprise data in parallel, passing the tenant ID to departments
+        const [tenantNodesData, deptData, empData, expiringContractsData] = await Promise.all([
           apiCall('/v1/tenants/tenants/', { requiresAuth: true }).catch(() => null),
-          fetchDepartments().catch(() => []),
+          fetchDepartments(currentTenantId).catch(() => []), // Pass currentTenantId here!
           fetchAllEmployees().catch(() => []),
-          fetchExpiringContracts(30).catch(() => [])
+          fetchExpiringContracts(30, true).catch(() => []) 
         ]);
 
-        const tenantObj = Array.isArray(currentTenantData) ? currentTenantData[0] : currentTenantData?.results?.[0] || currentTenantData;
         const motherName = tenantObj?.name || localStorage.getItem('tenant_name') || 'Holding Group';
         
         // Extract total storage metrics from the root/current tenant response
         const totalStorageUsed = tenantObj?.storage_used_gb || 0;
         const totalStorageQuota = tenantObj?.storage_quota_gb || 100;
 
-        const tenantsArray = Array.isArray(tenantNodesData) ? tenantNodesData : tenantNodesData?.results || [];
+        const rawTenants = Array.isArray(tenantNodesData) ? tenantNodesData : tenantNodesData?.results || [];
         const deptsArray: Department[] = Array.isArray(deptData) ? deptData : deptData?.results || [];
         const empsArray: Employee[] = Array.isArray(empData) ? empData : empData?.results || [];
 
-        const subTenants = tenantsArray.filter((t: any) => t.type === 'sub_company' || (t.parent && t.parent !== t.id));
-        const effectiveSubComps = subTenants.length > 0 ? subTenants : tenantsArray;
+        // Flatten the hierarchy while deduplicating by ID to prevent duplicate keys
+        const tenantMap = new Map();
+        rawTenants.forEach((t: any) => {
+          if (t && t.id) {
+            tenantMap.set(t.id, t);
+          }
+          if (t.sub_tenants && Array.isArray(t.sub_tenants)) {
+            t.sub_tenants.forEach((sub: any) => {
+              if (sub && sub.id) {
+                tenantMap.set(sub.id, sub);
+              }
+            });
+          }
+        });
 
-        // 2. Map through each sub-company and aggregate workforce, departments, and storage
+        const tenantsArray: any[] = Array.from(tenantMap.values());
+        const effectiveSubComps = tenantsArray;
+
+        // 3. Map through each sub-company and aggregate workforce, departments, and storage
         const processedSubCompanies: SubCompany[] = effectiveSubComps.map((t: any) => {
           const tenantIdStr = String(t.id);
 
@@ -145,6 +163,15 @@ export default function CompanyHomePage() {
   }
 
   const storagePercentage = Math.min(Math.round((stats.totalStorageUsed / (stats.totalStorageQuota || 100)) * 100), 100);
+
+  // Helper function to detect if contract expiry date is in the past
+  const isContractExpired = (expiryDateStr?: string) => {
+    if (!expiryDateStr) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(expiryDateStr);
+    return expiry < today;
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -310,27 +337,50 @@ export default function CompanyHomePage() {
 
             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <ShieldAlert size={18} className="text-rose-500" />
-                  <h3 className="text-base font-bold text-gray-900">Expiring Contracts</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert size={18} className="text-rose-500" />
+                    <h3 className="text-base font-bold text-gray-900">Contract Alerts</h3>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-xs font-bold">
+                    {stats.expiringContracts.length}
+                  </span>
                 </div>
 
                 {stats.expiringContracts.length > 0 ? (
                   <div className="space-y-3">
                     {stats.expiringContracts.slice(0, 4).map((contract) => {
                       const fullName = `${contract.first_name || ''} ${contract.middle_name || ''} ${contract.last_name || ''}`.replace(/\s+/g, ' ').trim();
+                      const expired = isContractExpired(contract.contract_expiry);
+
                       return (
-                        <div key={contract.id} className="p-3 rounded-xl bg-rose-50/60 border border-rose-100 text-xs space-y-1">
-                          <p className="font-semibold text-gray-900">{fullName || contract.email || 'Staff Member'}</p>
+                        <div 
+                          key={contract.id} 
+                          className={`p-3 rounded-xl border text-xs space-y-1 ${
+                            expired 
+                              ? 'bg-red-50/70 border-red-200' 
+                              : 'bg-amber-50/60 border-amber-100'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="font-semibold text-gray-900">{fullName || contract.email || 'Staff Member'}</p>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              expired ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'
+                            }`}>
+                              {expired ? 'EXPIRED' : 'EXPIRING SOON'}
+                            </span>
+                          </div>
                           <p className="text-gray-500">{contract.department_name || 'General'} • {contract.position_title || contract.contract_type || 'Contract'}</p>
-                          <p className="text-rose-600 font-medium pt-0.5">Expires: {contract.contract_expiry}</p>
+                          <p className={`font-medium pt-0.5 ${expired ? 'text-red-700' : 'text-amber-700'}`}>
+                            {expired ? 'Expired on: ' : 'Expires on: '} {contract.contract_expiry}
+                          </p>
                         </div>
                       );
                     })}
                   </div>
                 ) : (
                   <div className="py-12 text-center">
-                    <p className="text-xs text-gray-500">No contracts expiring within the next 30 days. All terms are current.</p>
+                    <p className="text-xs text-gray-500">No expiring or expired contracts found within this scope.</p>
                   </div>
                 )}
               </div>

@@ -10,16 +10,24 @@ export interface Department {
 
 /**
  * Fetches departments explicitly scoped to a target tenant/mother company ID.
- * Exported as `fetchDepartments` to match your page imports.
  */
 export async function fetchDepartments(tenantId?: string): Promise<Department[]> {
   try {
     const headers: Record<string, string> = {};
-    if (tenantId) {
+    
+    // Fallback or safety check: if tenantId is missing, log a warning
+    if (!tenantId) {
+      console.warn("fetchDepartments called without a tenantId! Expecting empty results.");
+    } else {
       headers['X-Tenant-ID'] = tenantId;
     }
 
-    const response = await apiCall('/v1/hr/departments/', {
+    // Pass tenant_id as a query parameter as well, matching backend support
+    const endpoint = tenantId 
+      ? `/v1/hr/departments/?tenant_id=${tenantId}` 
+      : '/v1/hr/departments/';
+
+    const response = await apiCall(endpoint, {
       requiresAuth: true,
       method: 'GET',
       headers,
@@ -32,7 +40,7 @@ export async function fetchDepartments(tenantId?: string): Promise<Department[]>
   }
 }
 
-// Keep an alias export just in case other files use this name
+// Keep an alias export
 export const fetchDepartmentsByTenant = fetchDepartments;
 
 /**

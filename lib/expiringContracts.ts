@@ -18,10 +18,19 @@ export interface ExpiringEmployee {
   [key: string]: any;
 }
 
-export async function fetchExpiringContracts(days: number = 30): Promise<ExpiringEmployee[]> {
+/**
+ * Fetches expiring (and optionally already-expired) contracts.
+ * @param days Number of days into the future to check (default: 30)
+ * @param includeExpired Whether to include contracts that have already passed/expired (default: true)
+ */
+export async function fetchExpiringContracts(
+  days: number = 30, 
+  includeExpired: boolean = true
+): Promise<ExpiringEmployee[]> {
   try {
-    // Aligned with your project's /v1/hr/ prefix structure
-    const response = await apiCall(`/v1/hr/employees/expiring/?days=${days}`, { 
+    const endpoint = `/v1/hr/employees/expiring/?days=${days}&include_expired=${includeExpired}`;
+    
+    const response = await apiCall(endpoint, { 
       requiresAuth: true,
       method: 'GET'
     });

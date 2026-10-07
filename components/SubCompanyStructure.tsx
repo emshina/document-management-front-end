@@ -83,15 +83,38 @@ export default function SubCompanyStructure({ themeColor: initialThemeColor }: S
     const fetchStructureData = async () => {
       try {
         setLoading(true);
+        
+        // 1. Fetch current tenant/holding info to resolve tenant ID
+        const currentTenantData = await apiCall('/v1/tenants/tenants/current/', { requiresAuth: true }).catch(() => null);
+        const tenantObj = Array.isArray(currentTenantData) ? currentTenantData[0] : currentTenantData?.results?.[0] || currentTenantData;
+        const currentTenantId = tenantObj?.id;
+
+        // 2. Fetch enterprise structure in parallel, passing currentTenantId to departments
         const [tenantNodesData, deptData, empData] = await Promise.all([
           apiCall('/v1/tenants/tenants/', { requiresAuth: true }).catch(() => null),
-          fetchDepartments().catch(() => []),
+          fetchDepartments(currentTenantId).catch(() => []),
           fetchAllEmployees().catch(() => [])
         ]);
 
-        const tenantsArray = Array.isArray(tenantNodesData) ? tenantNodesData : tenantNodesData?.results || [];
-        const subTenants = tenantsArray.filter((t: any) => t.type === 'sub_company' || (t.parent && t.parent !== t.id));
-        const effectiveSubComps = subTenants.length > 0 ? subTenants : tenantsArray;
+        const rawTenants = Array.isArray(tenantNodesData) ? tenantNodesData : tenantNodesData?.results || [];
+
+        // Flatten the hierarchy and deduplicate by ID to prevent duplicate keys
+        const tenantMap = new Map();
+        rawTenants.forEach((t: any) => {
+          if (t && t.id) {
+            tenantMap.set(t.id, t);
+          }
+          if (t.sub_tenants && Array.isArray(t.sub_tenants)) {
+            t.sub_tenants.forEach((sub: any) => {
+              if (sub && sub.id) {
+                tenantMap.set(sub.id, sub);
+              }
+            });
+          }
+        });
+
+        const tenantsArray: any[] = Array.from(tenantMap.values());
+        const effectiveSubComps = tenantsArray;
 
         setSubCompanies(effectiveSubComps);
         setAllDepartments(Array.isArray(deptData) ? deptData : deptData?.results || []);

@@ -21,16 +21,38 @@ export interface Employee {
 
 /**
  * Fetches all employees from the enterprise registry.
- * Handles both paginated (DRF results array) and non-paginated responses.
+ * Automatically loops through paginated pages if DRF pagination is active.
  */
 export async function fetchAllEmployees(): Promise<Employee[]> {
   try {
-    const response = await apiCall('/v1/hr/employees/', {
-      requiresAuth: true,
-      method: 'GET',
-    });
+    let url: string | null = '/v1/hr/employees/';
+    let allEmployees: Employee[] = [];
 
-    return Array.isArray(response) ? response : response?.results || [];
+    while (url) {
+      const response = await apiCall(url, {
+        requiresAuth: true,
+        method: 'GET',
+      });
+
+      if (Array.isArray(response)) {
+        // Fallback if pagination is turned off entirely
+        return response;
+      } else if (response && Array.isArray(response.results)) {
+        allEmployees = allEmployees.concat(response.results);
+        
+        // Check if there's a next page. Extract pathname + search query if it's an absolute URL.
+        if (response.next) {
+          const nextUrl = new URL(response.next);
+          url = nextUrl.pathname + nextUrl.search;
+        } else {
+          url = null;
+        }
+      } else {
+        break;
+      }
+    }
+
+    return allEmployees;
   } catch (error) {
     console.error('Failed to fetch employees list:', error);
     throw error;

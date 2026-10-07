@@ -357,11 +357,14 @@ export default function FormTemplateBuilder({
   }, [isDragging, isResizing, activeFieldId, zoomLevel]);
 
   const activeField = placedFields.find((f) => f.temp_id === activeFieldId);
+  
 
   /* ------------------------------------------------------------------ */
   /* Save                                                                */
   /* ------------------------------------------------------------------ */
-  const handleSaveTemplate = async (e: React.FormEvent) => {
+
+  
+const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return alert('Please provide a template title.');
     if (placedFields.length === 0) return alert('Please place at least one field on the document layout.');
@@ -371,6 +374,16 @@ export default function FormTemplateBuilder({
       formData.append('title', title);
       formData.append('description', description);
       if (uploadedFile) formData.append('document', uploadedFile);
+      
+      // Read the cached tenant ID from localStorage automatically
+      const currentTenantId = typeof window !== 'undefined' 
+        ? localStorage.getItem('active_company_id') || localStorage.getItem('tenant_id')
+        : null;
+
+      if (currentTenantId) {
+        formData.append('tenant_id', currentTenantId);
+      }
+
       formData.append('fields', JSON.stringify(placedFields.map((f) => ({
         ...(typeof f.id === 'string' || typeof f.id === 'number' ? { id: f.id } : {}),
         category: f.category,
@@ -393,6 +406,7 @@ export default function FormTemplateBuilder({
         method: editingTemplate ? 'PUT' : 'POST',
         requiresAuth: true,
         body: formData,
+        headers: currentTenantId ? { 'X-Tenant-ID': currentTenantId } : undefined,
       });
 
       onSaveSuccess();
