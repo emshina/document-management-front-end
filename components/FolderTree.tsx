@@ -482,7 +482,8 @@ export default function FolderTree({ selectedItem, onSelectFolder, onTriggerUplo
         </button>
       )}
 
-      {isFolder && (
+      {/* Replace {isFolder && (...) with this: */}
+      {(isFolder || item.folder_type) && (
         <>
           <button
             onClick={() => { setMenuOpenId(null); setCreatingType('folder'); setActiveParentItem(item); }}

@@ -1,6 +1,10 @@
 'use client';
-import { useState, useEffect, useMemo, useRef, MouseEvent, KeyboardEvent } from 'react';
-import { Folder, Edit3, Pin, MoreVertical, LayoutGrid, List, SlidersHorizontal, Loader2, Building, Building2, FileText, ChevronRight, Download, X, Columns, Eye, Check, Trash2, Edit } from 'lucide-react';
+
+import { useState, useEffect, useMemo, useRef, MouseEvent } from 'react';
+import { 
+  Folder, Pin, Loader2, Building, Building2, FileText, 
+  ChevronRight, Download, X, Eye, Check, Trash2, Edit, Plus
+} from 'lucide-react';
 import { fetchFolderContents, FolderItem, createSubCompany, createCabinet, createFolderItem } from '@/services/folderService';
 import { apiCall } from '@/lib/api';
 import ContextMenu from './ContextMenu';
@@ -37,9 +41,7 @@ interface ContentItem {
 export default function DocumentContentArea({ selectedItem, onSelectItem }: DocumentContentAreaProps) {
   const { hasPermission } = usePermissions();
 
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; item?: ContentItem | null } | null>(null);
-
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState<boolean>(false);
 
   const [contents, setContents] = useState<ContentItem[]>([]);
@@ -48,24 +50,22 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   
   // Filtering & View states
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'compact' | 'details'>('list');
+  const [typeFilter] = useState<string>('all');
 
   // Preview states
   const [previewFile, setPreviewFile] = useState<ContentItem | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // Breadcrumb path tracking history stack & Type-a-path states
+  // Breadcrumb tracking
   const [breadcrumbPath, setBreadcrumbPath] = useState<FolderItem[]>([]);
-  const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
-  const [typedPathString, setTypedPathString] = useState<string>('');
 
-  // Inline create & rename states
+  // Inline creation states
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [newItemName, setNewItemName] = useState<string>('');
   const [savingNew, setSavingNew] = useState<boolean>(false);
   const newItemInputRef = useRef<HTMLInputElement>(null);
 
+  // Rename states
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingItemName, setEditingItemName] = useState<string>('');
 
@@ -74,6 +74,15 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const isFolderLevel = itemType === 'folder';
 
   const [themeColor, setThemeColor] = useState<string>('#4C1D95');
+
+  // Clean up object URLs to prevent memory leaks when changing previews
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        window.URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   // Database Color Code resolution
   useEffect(() => {
@@ -309,6 +318,11 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
       return;
     }
 
+    if (previewUrl) {
+      window.URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+
     setPreviewFile(item);
     try {
       const docData = await apiCall(`/v1/documents/documents/${item.id}/`, { method: 'GET', requiresAuth: true });
@@ -359,12 +373,17 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
     }
   };
 
-  const childKindLabel =
-    itemType === 'mother_company' ? 'Sub Company'
-    : itemType === 'sub_company' ? 'Cabinet'
-    : 'Folder';
+  // Determine label and check whether sub-company creation is allowed
+  const canCreateChild = itemType !== 'mother_company'; // Hide sub-company creation at mother level to match tree logic
+  const childKindLabel = 
+    itemType === 'sub_company' ? 'Cabinet'
+    : itemType === 'cabinet' || itemType === 'folder' ? 'Folder'
+    : '';
 
   const startInlineCreate = () => {
+    if (!canCreateChild || !childKindLabel) {
+      return;
+    }
     if (!itemId || itemId === 'default-folder-id') {
       alert('Select a folder or cabinet first.');
       return;
@@ -389,8 +408,7 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
 
     try {
       setSavingNew(true);
-      if (itemType === 'mother_company') await createSubCompany(name, itemId);
-      else if (itemType === 'sub_company') await createCabinet(name, itemId);
+      if (itemType === 'sub_company') await createCabinet(name, itemId);
       else await createFolderItem(name, itemId, itemType === 'cabinet' ? 'cabinet' : 'folder');
 
       cancelInlineCreate();
@@ -416,7 +434,6 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
   const currentName = selectedItem?.name || 'Select a folder';
   const currentTypeLabel = itemType ? itemType.replace('_', ' ').toUpperCase() : 'DIRECTORY';
 
-  // Determine target item details for context menu operations (like templates)
   const activeTargetId = contextMenuPos?.item?.id || itemId;
   const activeTargetType = contextMenuPos?.item?.type || itemType;
 
@@ -461,6 +478,15 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
               <p className="text-xs opacity-80" style={{ color: themeColor }}>{currentTypeLabel}</p>
             </div>
           </div>
+          {itemId && itemId !== 'default-folder-id' && canCreateChild && (
+            <button
+              onClick={startInlineCreate}
+              className="px-3 py-1.5 rounded-lg text-white text-xs font-medium flex items-center gap-1.5 shadow-sm transition hover:opacity-90"
+              style={{ backgroundColor: themeColor }}
+            >
+              <Plus size={14} /> New {childKindLabel}
+            </button>
+          )}
         </div>
 
         <DocumentUploadZone 
@@ -473,6 +499,41 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
 
         <div className="mx-6 mt-3 mb-6 bg-white border border-gray-200 rounded-lg shadow-sm">
           <div className="divide-y divide-gray-100">
+            {/* INLINE CREATE ROW */}
+            {isCreating && (
+              <div className="flex items-center justify-between px-4 py-3 bg-purple-50/50">
+                <div className="flex items-center gap-3 flex-1">
+                  <Folder size={18} style={{ color: themeColor }} />
+                  <input
+                    ref={newItemInputRef}
+                    type="text"
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitInlineCreate();
+                      if (e.key === 'Escape') cancelInlineCreate();
+                    }}
+                    className="border rounded px-2 py-1 text-xs outline-none bg-white"
+                    style={{ borderColor: themeColor }}
+                    disabled={savingNew}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={submitInlineCreate}
+                    disabled={savingNew}
+                    className="p-1 rounded text-white flex items-center gap-1 text-xs px-2"
+                    style={{ backgroundColor: themeColor }}
+                  >
+                    {savingNew ? <Loader2 size={12} className="animate-spin" /> : <Check size={14} />} Save
+                  </button>
+                  <button onClick={cancelInlineCreate} className="p-1 rounded text-gray-400 hover:text-gray-600">
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {filteredContents.map((item) => {
               const resolvedType = item.type || (item.file_type || item.reference_no ? 'file' : 'folder');
               const isFile = resolvedType === 'file' || item.file_type || item.reference_no;
@@ -502,6 +563,10 @@ export default function DocumentContentArea({ selectedItem, onSelectItem }: Docu
                           className="border rounded px-2 py-1 text-xs outline-none"
                           style={{ borderColor: themeColor }}
                           autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameSubmit(item);
+                            if (e.key === 'Escape') setEditingItemId(null);
+                          }}
                         />
                         <button onClick={() => handleRenameSubmit(item)} className="text-xs font-semibold" style={{ color: themeColor }}><Check size={14} /></button>
                         <button onClick={() => setEditingItemId(null)} className="text-gray-400"><X size={14} /></button>

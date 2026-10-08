@@ -86,7 +86,6 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      // 1. Create Company Tenant (Fixed with /v1/ prefix)
       // 1. Create Company Tenant via the public registration endpoint
       const tenantRes = await apiCall('/v1/tenants/register/', {
         method: 'POST',
@@ -100,7 +99,7 @@ export default function SignupPage() {
 
       const tenantId = tenantRes.id;
 
-      // 2. Create Admin User linked to the new Tenant (Fixed with /v1/ prefix)
+      // 2. Create Admin User linked to the new Tenant (is_active omitted/set to false by backend)
       await apiCall('/v1/accounts/users/', {
         method: 'POST',
         body: JSON.stringify({
@@ -110,13 +109,11 @@ export default function SignupPage() {
           last_name: lastName,
           phone,
           tenant: tenantId,
-          is_active: true,
-          is_staff: true,
         }),
       });
 
-      // 3. Redirect to login
-      router.push('/login?registered=true');
+      // 3. Redirect to login with a verification notification
+      router.push('/login?verification_sent=true');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please review your entries.');
     } finally {
