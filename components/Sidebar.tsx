@@ -138,42 +138,60 @@ export default function Sidebar({ isOpen, onClose, onOpenAllFeatures }: SidebarP
           ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        <div className="flex flex-col h-full overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-5 border-b border-white/10 bg-black/10">
-            {(!isCollapsed || isOpen) && (
-              <div className="flex items-center gap-2.5 truncate">
-                {tenant?.effective_logo ? (
-                  <img 
-                    src={getLogoUrl(tenant.effective_logo)} 
-                    alt={tenant.name || 'Company Logo'} 
-                    className="w-8 h-8 rounded-lg object-contain bg-white/10 p-1 shrink-0" 
-                  />
-                ) : (
-                  <div className="p-2 rounded-xl bg-white/10 text-white shrink-0">
-                    <Sparkles size={18} />
-                  </div>
-                )}
-                <span className="text-lg font-bold tracking-tight truncate">
-                  {tenant?.name || 'Visaro Server'}
-                </span>
-              </div>
-            )}
-
-            <button 
-              onClick={() => {
-                setIsCollapsed(!isCollapsed);
-                setSidebarWidth(isCollapsed ? 256 : 80);
-              }}
-              className="hidden md:flex p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition ml-auto border border-white/10"
-              title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-            >
-              {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-            </button>
-
-            <button onClick={onClose} className="md:hidden text-white/70 hover:text-white">
-              <X size={20} />
-            </button>
+<div className="flex flex-col h-full overflow-hidden">
+  <div className="flex items-center justify-between px-4 py-5 border-b border-white/10 bg-black/10">
+    <Link 
+      href="/company-profile"
+      title="Update Company Profile"
+      className="flex items-center gap-2.5 truncate hover:opacity-80 transition group flex-1 mr-2"
+    >
+      {(!isCollapsed || isOpen) ? (
+        <div className="flex items-center gap-2.5 truncate">
+          {tenant?.effective_logo ? (
+            <img 
+              src={getLogoUrl(tenant.effective_logo)} 
+              alt={tenant.name || 'Company Logo'} 
+              className="w-8 h-8 rounded-lg object-contain bg-white/10 p-1 shrink-0" 
+            />
+          ) : (
+            <div className="p-2 rounded-xl bg-white/10 text-white shrink-0">
+              <Sparkles size={18} />
+            </div>
+          )}
+          <span className="text-lg font-bold tracking-tight truncate group-hover:underline">
+            {tenant?.name || 'Visaro Server'}
+          </span>
+        </div>
+      ) : (
+        tenant?.effective_logo ? (
+          <img 
+            src={getLogoUrl(tenant.effective_logo)} 
+            alt={tenant.name || 'Company Logo'} 
+            className="w-8 h-8 rounded-lg object-contain bg-white/10 p-1 shrink-0 mx-auto" 
+          />
+        ) : (
+          <div className="p-2 rounded-xl bg-white/10 text-white shrink-0 mx-auto">
+            <Sparkles size={18} />
           </div>
+        )
+      )}
+    </Link>
+
+    <button 
+      onClick={() => {
+        setIsCollapsed(!isCollapsed);
+        setSidebarWidth(isCollapsed ? 256 : 80);
+      }}
+      className="hidden md:flex p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition border border-white/10 shrink-0"
+      title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+    >
+      {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+    </button>
+
+    <button onClick={onClose} className="md:hidden text-white/70 hover:text-white shrink-0">
+      <X size={20} />
+    </button>
+  </div>
 
           <nav className="mt-4 space-y-1.5 px-3 flex-1 overflow-y-auto scrollbar-none">
             {navItems.map((item) => {

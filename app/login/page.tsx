@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { apiCall } from '@/lib/api';
+import { setAuthToken } from '@/lib/auth';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -24,7 +25,8 @@ export default function LoginPage() {
       });
 
       if (data.access) {
-        localStorage.setItem('access_token', data.access);
+        // Sets both localStorage and document.cookie for route security
+        setAuthToken(data.access);
       }
       if (data.refresh) {
         localStorage.setItem('refresh_token', data.refresh);
@@ -80,7 +82,7 @@ export default function LoginPage() {
         }
       }
 
-      // ✅ FIXED: Smart Tenant Resolution instead of blindly picking tenantList[0] (which picked snakevalley)
+      // Smart Tenant Resolution
       if (!tenantId || tenantId === 'null' || tenantId === 'undefined') {
         try {
           const tenantsData = await apiCall('/v1/tenants/', {
@@ -89,7 +91,6 @@ export default function LoginPage() {
           });
           const tenantList = Array.isArray(tenantsData) ? tenantsData : (tenantsData?.results || []);
           
-          // Look for Muthowa Ent or primary tenant first, rather than picking index 0 randomly
           const correctTenant = tenantList.find((t: any) => 
             t.name?.toLowerCase().includes('muthowa') || t.is_primary
           ) || tenantList[0];
@@ -235,7 +236,12 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5 tracking-wider uppercase">Password</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-gray-700 tracking-wider uppercase">Password</label>
+                  <Link href="/forgot-password" className="text-xs text-[#ef7632] hover:underline font-medium">
+                    Forgot Password?
+                  </Link>
+                </div>
                 <input 
                   type="password" 
                   required
